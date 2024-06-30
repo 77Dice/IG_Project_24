@@ -1,3 +1,6 @@
+// i can put everything inside a SIngle FIle
+
+
 function GetModelViewMatrix(
   translationX,
   translationY,
@@ -39,6 +42,7 @@ function GetModelViewMatrix(
   return mv;
 }
 
+// load shader Program from GLSL code
 function setShaderProgram(meshVS, meshFS) {
   // compiling GLSL code
   let vtxShader = () => {
@@ -90,17 +94,23 @@ class MeshDrawer {
     this.loadTex = false;
     this.vertPos = [];
     this.texCoords = [];
-    this.normals = [];
-    this.pendolumVertPos = [];
+    this.normals = [];    
     this.shininess = 0;
     this.lightDir = [0.0, 0.0, 0.0];
-    this.numTriangles = 0;
-    this.numLines = 0;
+    this.numTriangles = 0;    
+    // webGL buffers    
     this.positionBuffer = gl.createBuffer();
     this.txcBuffer = gl.createBuffer();
-    this.mytex = gl.createTexture();
-    this.normBuffer = gl.createBuffer();    
-    this.pendolumBuffer = gl.createBuffer();
+    this.texture = gl.createTexture();
+    this.normBuffer = gl.createBuffer();  
+    
+
+
+    //this.numLines = 0;
+    //this.pendolumVertPos = [];
+    //this.pendolumBuffer = gl.createBuffer();
+//
+    //this.pendolumVrtsPos = gl.getAttribLocation(this.prog, "pendPos");
     
 
     // MODEL/OBJECT SPACE --> VIEW/CAMERA SPACE
@@ -108,9 +118,10 @@ class MeshDrawer {
     // n' = MN * n
     // MN = (MV)^-1 (inverse-transpose of matrixMV)
     this.meshVS = `
-		  attribute vec3 pos;			
+		attribute vec3 pos;			
 		attribute vec2 txc; 	  
 	  attribute vec3 norm;
+    attribute vec3 pendPos;
   
 	  uniform mat4 mvp;		    
 	  uniform mat4 modelViewMx;
@@ -123,7 +134,7 @@ class MeshDrawer {
   
 	  void main() 
 		  {
-			  gl_Position = mvp * vec4(swapYZ == 1.0 ? pos.xzy : pos , 1);					      
+		gl_Position = mvp * vec4(swapYZ == 1.0 ? pos.xzy : pos , 1);					      
 		vPositions = modelViewMx * vec4(swapYZ == 1.0 ? pos.xzy : pos, 1);
 		vNormals = normalMx * (swapYZ == 1.0 ? norm.xzy : norm);
 		texCoord = txc;
@@ -173,27 +184,32 @@ class MeshDrawer {
 		vec3 diffuse = thetaCos * Kd;
 		vec3 specular = pow(phiCos, shininess) * Ks;    
 		
-		gl_FragColor = vec4(ambient + diffuse + specular, 1.0);      
+		
+    gl_FragColor = vec4(ambient + diffuse + specular, 1.0);
 	  }
 		  `;
-
+    
     // compile shader Program
     this.prog = setShaderProgram(this.meshVS, this.meshFS);
 
     // get the location of the uniform variable
     this.mvp = gl.getUniformLocation(this.prog, "mvp");
-    this.vrtxPos = gl.getAttribLocation(this.prog, "pos");
+    this.vrtxPos = gl.getAttribLocation(this.prog, "pos"); 
     this.texture = gl.getUniformLocation(this.prog, "tex");
     this.txcPos = gl.getAttribLocation(this.prog, "txc");
     this.swapPos = gl.getUniformLocation(this.prog, "swapYZ");
     this.loadTexPos = gl.getUniformLocation(this.prog, "loadTex");
     this.showTexPos = gl.getUniformLocation(this.prog, "showTex");
+
+
     // shader positions
     this.normPos = gl.getAttribLocation(this.prog, "norm");
     this.shininessPos = gl.getUniformLocation(this.prog, "shininess");
     this.lightDirPos = gl.getUniformLocation(this.prog, "vLightDir");
     this.mvMx = gl.getUniformLocation(this.prog, "modelViewMx");
     this.normMx = gl.getUniformLocation(this.prog, "normalMx");
+
+
   }
 
   setMesh(vertPos, texCoords, normals) {
@@ -201,14 +217,15 @@ class MeshDrawer {
     this.vertPos = vertPos;
     this.texCoords = texCoords;
     this.normals = normals;
-    // pendolum
-    this.pendolumVertPos = new Float32Array([
+    // pendolum (da aggiungere ALL OBJECT!!!)
+    this.PosvertPos = new Float32Array([
       // vertex of pendolum
       0, 0, 0, 0, -1, 0,
     ]);
-    this.numLines = this.pendolumVertPos.length / 3;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.pendolumBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, this.pendolumVertPos, gl.STATIC_DRAW);
+
+    //this.numLines = this.pendolumVertPos.length / 3;
+    //gl.bindBuffer(gl.ARRAY_BUFFER, this.pendolumBuffer);
+    //gl.bufferData(gl.ARRAY_BUFFER, this.pendolumVertPos, gl.STATIC_DRAW);
 
     // allocate data on GPU memory
     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
@@ -260,13 +277,13 @@ class MeshDrawer {
     gl.enableVertexAttribArray(this.normPos);
 
     // pendolum
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.pendolumBuffer);
-    gl.vertexAttribPointer(this.pendolumVertPos, 3, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(this.pendolumVertPos);
+    //gl.bindBuffer(gl.ARRAY_BUFFER, this.pendolumBuffer);
+    //gl.vertexAttribPointer(this.pendolumVertPos, 3, gl.FLOAT, false, 0, 0);
+    //gl.enableVertexAttribArray(this.pendolumVertPos);
     
     
 
-    gl.drawArrays(gl.LINES, 0, this.numLines);
+    //gl.drawArrays(gl.LINES, 0, this.numLines);
 
 
     // draw
@@ -283,11 +300,12 @@ class MeshDrawer {
     this.shininess = shininess;
   }
 
+  // load texture to GPU memory
   setTexture(img) {
     if (img != null) {
       this.loadTex = true;
 
-      gl.bindTexture(gl.TEXTURE_2D, this.mytex);
+      gl.bindTexture(gl.TEXTURE_2D, this.texture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, img);
       gl.generateMipmap(gl.TEXTURE_2D);
 
@@ -301,7 +319,7 @@ class MeshDrawer {
 
       // binding
       gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, this.mytex);
+      gl.bindTexture(gl.TEXTURE_2D, this.texture);
     } else this.loadTex = false;
   }
 
