@@ -1,8 +1,10 @@
-///////////////////////////////////////////////////////////////////////////////////
-// Below is the code for Drawing the ROPES of pendolums
-///////////////////////////////////////////////////////////////////////////////////
+// Draw Ropes of Pendolum 
+// call Draw for every step of the simulation
+
+// I could add a MeshDrawer CONNECTED TO RopeDrawer... dove centro la sfera sul vertice LIBERO!!!
+
 class RopeDrawer {
-    constructor( ropeVertex )
+    constructor(fix, free)
       {
           // Compile the shader program
           this.prog = InitShaderProgram( ropeVShader, ropeFShader );
@@ -17,8 +19,21 @@ class RopeDrawer {
           this.vertexBuffer = gl.createBuffer();
   
           this.vertices = new Float32Array(
-              ropeVertex);
+              [fix[0], fix[1], fix[2],
+              free[0], free[1], free[2]]
+            );
     }
+
+
+    // update vertex free
+    update(free){
+        this.vertices = new Float32Array(
+            [this.vertices[0], this.vertices[1], this.vertices[2],
+            free[0], free[1], free[2]]
+        );
+    }
+
+    // draw rope
     draw( trans ) //trans --> mvp
       {		
               gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
@@ -33,7 +48,7 @@ class RopeDrawer {
               gl.enable(gl.DEPTH_TEST);
       }
   }
-  
+
   var ropeVShader =
    `attribute vec3 coordinates;
    uniform mat4 mvp;
@@ -45,7 +60,7 @@ class RopeDrawer {
   var ropeFShader =
   `
   void main(void) {
-      gl_FragColor = vec4(1,0,0,1); // Colore rosso
+      gl_FragColor = vec4(1,0,1,1);
               }
   
   `;

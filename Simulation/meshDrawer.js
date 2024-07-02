@@ -114,6 +114,18 @@ class MeshDrawer {
         return this.type;
     }
   
+  // This method is called every time the user opens an OBJ file.
+	// The arguments of this function is an array of 3D vertex positions,
+	// an array of 2D texture coordinates, and an array of vertex normals.
+	// Every item in these arrays is a floating point value, representing one
+	// coordinate of the vertex position or texture coordinate.
+	// Every three consecutive elements in the vertPos array forms one vertex
+	// position and every three consecutive vertex positions form a triangle.
+	// Similarly, every two consecutive elements in the texCoords array
+	// form the texture coordinate of a vertex and every three consecutive 
+	// elements in the normals array form a vertex normal.
+	// Note that this method can be called multiple times.
+  
     setMesh(vertPos, texCoords, normals) {
       this.numTriangles = vertPos.length / 3;
       this.vertPos = vertPos;
@@ -139,7 +151,6 @@ class MeshDrawer {
         gl.STATIC_DRAW
       );
     }
-  
     draw(matrixMVP, matrixMV, matrixNormal) {
       // clear the canvas
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -211,107 +222,5 @@ class MeshDrawer {
       this.swap = swap;
     }
   }
-  
-  // This function is called for every step of the simulation.
-  // Its job is to advance the simulation for the given time step duration dt.
-  // It updates the given positions and velocities.
-  function SimTimeStep(
-    dt,
-    positions,
-    velocities,
-    springs,
-    stiffness,
-    damping,
-    particleMass,
-    gravity,
-    restitution
-  ) {
-    /*
-  init(x,y,z): sets the x, y, and z coordinates to the given values.
-  copy(): returns a copy of the vector object.
-  set(v): sets the x, y, and z coordinates to the same values as the given vector v.
-  inc(v): increments the x, y, and z coordinate values by adding the coordinate values of the given vector v.
-  dec(v): decrements the x, y, and z coordinate values by subtracting the coordinate values of the given vector v.
-  scale(f): multiplies the x, y, and z coordinates by the given scalar f.
-  add(v): add the given vector v to this vector and returns the resulting vector.
-  sub(v): subtracts the given vector v from this vector and returns the resulting vector.
-  dot(v): computes the dot product of this vector and the given vector v and returns the resulting scalar.
-  cross(v): computes the cross product of this vector and the given vector v and returns the resulting vector.
-  mul(f): multiplies the vector by the given scalar f and returns the result.
-  div(f): divides the vector by the given scalar f and returns the result.
-  len2(): returns the squared length of the vector.
-  len(): returns the length of the vector.
-  unit(): returns the unit vector along the direction of this vector.
-  normalize(): normalizes this vector, turning it into a unit vector.
-  */
-    var forces = [...Array(positions.length)].map(
-      (_, i) => new Vec3(0, gravity.y * particleMass, 0)
-    );
-    // Compute the total force of each particle
-    springs.forEach((spring) => {
-      // spring = {p0: , p1: , rest: }
-      let p0 = spring.p0;
-      let p0Pos = positions[p0]; //Vec3
-      let p0Vel = velocities[p0]; //Vec3
-      let p1 = spring.p1;
-      let p1Pos = positions[p1];
-      let p1Vel = velocities[p1];
-      let restLength = spring.rest; //float
-      // spring Force
-      let lSpring = p1Pos.sub(p0Pos).len();
-      let springDir = p1Pos.sub(p0Pos).div(lSpring);
-      let springForceP0 = springDir.mul(stiffness * (lSpring - restLength));
-      let springForceP1 = springForceP0.mul(-1);
-      // damping force
-      let lDamp = p1Vel.sub(p0Vel).dot(springDir);
-      let dampForceP0 = springDir.mul(damping * lDamp);
-      let dampForceP1 = dampForceP0.mul(-1);
-      //console.log("P0",springForceP0, dampForceP0);
-      //console.log("P1",springForceP1, dampForceP1);
-      // total force
-      forces[p0] = forces[p0].add(springForceP0).add(dampForceP0);
-      forces[p1] = forces[p1].add(springForceP1).add(dampForceP1);
-    });
-    // Compute Acceleration for each particle
-    let acc = forces.map((f) => f.div(particleMass));
-    // Update positions and velocities
-    velocities.forEach((vel, i) => {
-      // Semi-Implicit Euler Integration ------------------------------------------        
-      vel.inc(acc[i].mul(dt));    
-      positions[i].inc(vel.mul(dt));
-    });  
-    // Handle collisions
-    positions.forEach((pos, i) => {
-      if (pos.y < -1.0) {
-        let h = -1.0 - pos.y;
-        pos.y = -1.0 + h*restitution;      
-        velocities[i] = velocities[i].mul(-restitution);
-      }
-      if(pos.y > 1.0){
-        let h = pos.y - 1.0;
-        pos.y = 1.0 - h*restitution;
-        velocities[i] = velocities[i].mul(-restitution);
-      }
-      if(pos.x < -1.0){
-        let h = -1.0 - pos.x;
-        pos.x = -1.0 + h*restitution;
-        velocities[i] = velocities[i].mul(-restitution);
-      }
-      if(pos.x > 1.0){
-        let h = pos.x - 1.0;
-        pos.x = 1.0 - h*restitution;
-        velocities[i] = velocities[i].mul(-restitution);
-      }
-      if(pos.z < -1.0){
-        let h = -1.0 - pos.z;
-        pos.z = -1.0 + h*restitution;
-        velocities[i] = velocities[i].mul(-restitution);
-      }
-      if(pos.z > 1.0){
-        let h = pos.z - 1.0;
-        pos.z = 1.0 - h*restitution;
-        velocities[i] = velocities[i].mul(-restitution);
-      }
-    });
-  }
+
   

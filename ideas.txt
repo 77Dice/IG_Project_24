@@ -1,3 +1,29 @@
+se devo fare una simulazione devo partire...
+da Mass Spring... e capire come creare 
+2 modelli Mass Spring che si parlano...
+
+A/ modellizzare la linea come un massSping Strip..
+dove al centro abbiamo un peso maggiorato...
+
+B/ renderizzarene piu di una 
+
+C/ applicare la Collision Detection
+
+inoltre penso che le linee possono essere 
+modellizzate come delle CATENE.. dove l'ultima massa e' MOLTO PESANTE!!
+
+
+MassSpring tiene memoria di tutte le info 
+della simualzione (per ogni Step) e quindi ricalcola Forze,Acc,Vel, 
+e relative posizioni dei vertici...
+
+solo dopo manda tutto questo a MeshDrawer che prende queste info sui vertici
+e renderizza a schermo applicando anche Shadowing e altri effetti..
+
+
+
+
+
 anche un semplice clouth simulation puo darti 30 se 
 lavori bene con le luci...
 

@@ -1,19 +1,18 @@
-<doctype html>
+
 <!-- Copyright 2020, Cem Yuksel, University of Utah -->
 <html>
 <head>
 <title>Pendolum Project</title>
 <link rel="stylesheet" type="text/css" href="style.css">
 
+<script type="text/javascript" src="lightView.js"></script>
 
-<script type="text/javascript" src="lightView.js">
-	var lightView;
-	</script>
 <script type="text/javascript" src="objLoader.js"></script>
 <script type="text/javascript" src="meshDrawer.js"></script>
 <script type="text/javascript" src="boxDrawer.js"></script>
 <script type="text/javascript" src="ropeDrawer.js"></script>
 <script type="text/javascript" src="pointDrawer.js"></script>
+<script type="text/javascript" src="massSpring.js"></script>
 <script type="text/obj" id="box.obj">
 v  -1  1 -1
 v  -1 -1 -1
@@ -58,23 +57,20 @@ f 4/1/13 8/4/16 5/3/15 3/2/14
 f 1/1/17 7/4/20 8/3/19 4/2/18 
 f 2/1/21 6/4/24 7/3/23 1/2/22 
 </script>
-<script type="text/javascript" src="massSpring.js">
-	var massSpring;
-	</script>
-<!--
+
+
+<script type="text/javascript">	
 ///////////////////////////////////////////////////////////////////////////////////
 // Below is the core WebGL initialization code.
 ///////////////////////////////////////////////////////////////////////////////////
--->
-<script type="text/javascript">
 var boxDrawer;
 var pointDrawer;
 var meshDrawer;
 var ropeDrawer;
 
 var canvas, gl;
-var rotX=0, rotY=0, transY=0, transZ=3;
 var MV, MVP; // view matrices
+var rotX=0, rotY=0, transY=0, transZ=3;
 
 // Called once to initialize
 function InitWebGL()
@@ -106,17 +102,9 @@ function InitWebGL()
 	boxDrawer   = new BoxDrawer( whiteBox1x1);
 	pointDrawer = new PointDrawer();
 	meshDrawer  = new MeshDrawer();
-	ropeDrawer = new RopeDrawer(	
-		[
-            0, 1, 0, // Punto di inizio
-            0, 0, 0  // Punto di fine
-        ]);
-	ropeDrawer2 = new RopeDrawer(
-		[
-		0.5, 1, 0, // Punto di inizio
-		0.5, 0, 0  // Punto di fine
-		]
-	)
+	let fixV = [ 0, 1, 0 ];
+	let freeV = [ 0, 0, 0 ];
+	ropeDrawer = new RopeDrawer(fixV, freeV);		
 	
 	// Set the viewport size
 	UpdateCanvasSize();
@@ -214,8 +202,9 @@ function DrawScene()
 	// Draw the curve and then the line segments that connect the control points.
 	var nrmTrans = [ MV[0],MV[1],MV[2], MV[4],MV[5],MV[6], MV[8],MV[9],MV[10] ];
 	meshDrawer.draw( MVP, MV, nrmTrans );
+	let freeV = [  Math.random() * 2 - 1, Math.random() * 2 - 1,  Math.random() * 2 - 1 ];
+	ropeDrawer.update(freeV);
 	ropeDrawer.draw( MVP );
-	ropeDrawer2.draw( MVP );
 	if ( showBox.checked ) {
 		boxDrawer.draw( MVP );
 	}
@@ -334,15 +323,9 @@ function MatrixInverse( m )
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
-</script>
-
-
-<!--
-///////////////////////////////////////////////////////////////////////////////////
 // Below are the main UI control functions.
 ///////////////////////////////////////////////////////////////////////////////////
--->
-<script type="text/javascript">
+
 var showBox;
 
 window.onload = function() {
@@ -401,10 +384,9 @@ window.onload = function() {
 		DrawScene();
 	}
 	
-	// call for creation of ONE massSpring object
-	// 0 = spPoly, 1 = spSmooth, 2 = spLow, 3 = box
-	massSpring = new MassSpring(3);
-	massSpring2 = new MassSpring(0);
+	massSpring = new MassSpring();	
+	// ha gia dentro la mesh... che va definita quando richiama setMesh da costruttore(diretto sul cubo)
+	// forse devo creare un  Wrapper "simulazione" che tiene dentro tanti MassSpring e li simula tutti insieme!! + si interfaccia con l'esterno...
 	
 	SetGravity  ( document.getElementById('gravity') );
 	SetMass     ( document.getElementById('mass') );
