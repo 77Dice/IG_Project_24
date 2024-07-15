@@ -66,7 +66,7 @@ f 2/1/21 6/4/24 7/3/23 1/2/22
 var boxDrawer;
 var pointDrawer;
 var meshDrawer;
-var ropeDrawer;
+var ropeDrawer; // To DELETE
 
 var canvas, gl;
 var MV, MVP; // view matrices
@@ -101,10 +101,7 @@ function InitWebGL()
 	let whiteBox2x2 = whiteBox1x1.map( x => x*2 );
 	boxDrawer   = new BoxDrawer( whiteBox1x1);
 	pointDrawer = new PointDrawer();
-	meshDrawer  = new MeshDrawer();
-	let fixV = [ 0, 1, 0 ];
-	let freeV = [ 0, 0, 0 ];
-	ropeDrawer = new RopeDrawer(fixV, freeV);		
+	meshDrawer  = new MeshDrawer();		
 	
 	// Set the viewport size
 	UpdateCanvasSize();
@@ -202,9 +199,7 @@ function DrawScene()
 	// Draw the curve and then the line segments that connect the control points.
 	var nrmTrans = [ MV[0],MV[1],MV[2], MV[4],MV[5],MV[6], MV[8],MV[9],MV[10] ];
 	meshDrawer.draw( MVP, MV, nrmTrans );
-	let freeV = [  Math.random() * 2 - 1, Math.random() * 2 - 1,  Math.random() * 2 - 1 ];
-	ropeDrawer.update(freeV);
-	ropeDrawer.draw( MVP );
+	let freeV = [  Math.random() * 2 - 1, Math.random() * 2 - 1,  Math.random() * 2 - 1 ];	
 	if ( showBox.checked ) {
 		boxDrawer.draw( MVP );
 	}

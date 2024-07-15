@@ -22,9 +22,11 @@ class RopeDrawer {
               [fix[0], fix[1], fix[2],
               free[0], free[1], free[2]]
             );
-    }
+            
+            
 
-
+        }
+        
     // update vertex free
     update(free){
         this.vertices = new Float32Array(

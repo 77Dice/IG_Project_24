@@ -1,6 +1,6 @@
 // Copyright 2020, Cem Yuksel, University of Utah
 ///////////////////////////////////////////////////////////////////////////////////
-// Below is the code that Parse&load the wavefront Objects 
+// Below is the code that Parse&load the wavefront Object files (.obj)
 ///////////////////////////////////////////////////////////////////////////////////
 class ObjLoader
 {
@@ -28,6 +28,7 @@ class ObjLoader
 	}
 	
 	// Parses the contents of an obj file.
+	// va a popolare le variabili vpos, face, tpos, tfac, nfac
 	parse( objdata )
 	{
 		var lines = objdata.split('\n');
@@ -78,7 +79,8 @@ class ObjLoader
 		}
 	}
 	
-	// Returns the bounding box of the object
+	// ritorna il bounding box, 
+	// 2 vertici, min e max, che rappresentano il bounding box
 	getBoundingBox()
 	{
 		if ( this.vpos.length == 0 ) return null;
@@ -93,6 +95,8 @@ class ObjLoader
 		return { min: min, max: max };
 	}
 	
+	// trasla e scala il modello, modificando
+	// le coordinate dei vertici
 	shiftAndScale( shift, scale )
 	{
 		for ( var i=0; i<this.vpos.length; ++i ) {
@@ -102,11 +106,12 @@ class ObjLoader
 		}
 	}
 	
+	// popola la variabile norm con le normali
 	computeNormals()
 	{
 		function add( a, b ) {
 			return [ a[0]+b[0], a[1]+b[1], a[2]+b[2] ];
-		}
+		}		
 
 		function sub( a, b ) {
 			return [ a[0]-b[0], a[1]-b[1], a[2]-b[2] ];
@@ -149,6 +154,8 @@ class ObjLoader
 		for ( var i=0; i<this.norm.length; ++i ) this.norm[i] = normalize(this.norm[i]);
 	}
 	
+	// ritorna i buffer per 
+	// la posizione, le coordinate delle texture e le normali
 	getVertexBuffers()
 	{
 		function addTriangleToBuffers( mesh, fi, i, j, k )
@@ -200,6 +207,9 @@ class ObjLoader
 		return { positionBuffer: vBuffer, texCoordBuffer: tBuffer, normalBuffer: nBuffer };
 	}
 
+	// ritorna i buffer per
+	// la posizione, le coordinate delle texture e le normali
+	// e anche il buffer degli elementi...
 	getElementBuffers()
 	{
 		function setBuffer( buffer, i, data, dim )

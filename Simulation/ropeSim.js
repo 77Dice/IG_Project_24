@@ -19,61 +19,9 @@ class RopeSim {
         this.stiffness = 1;
         this.damping = 1;
         this.restitution = 0.8;    
-        this.setRope(nMasses, length);                    
+        //this.setRope(nMasses, length);                    
         
     }
-
-    setRope(nMasses, length) {
-
-        this.mesh = new RopeDrawer(ropeVertex, ropeFragment);
-
-        this.reset(nMasses, length);
-        this.initSprings(nMasses, length);
-    }
-
-
-    reset(nMasses, length) {
-        this.vPos = Array(nMasses);
-        for (var i = 0; i < nMasses; ++i) {
-          this.vPos[i] = new Vec3(0, -length * i, 0);
-        }
-        this.vVel = Array(nMasses);
-        for (var i = 0; i < nMasses; ++i) {
-            this.vVel[i] = new Vec3(0, 0, 0);
-        }
-        this.vAcc = Array(nMasses);
-        for (var i = 0; i < nMasses; ++i) {
-            this.vAcc[i] = new Vec3(0, 0, 0);
-        }
-        this.vForce = Array(nMasses);
-        for (var i = 0; i < nMasses; ++i) {
-            this.vForce[i] = new Vec3(0, 0, 0);
-        }
-        this.vMass = Array(nMasses);
-        for (var i = 0; i < nMasses; ++i) {
-            this.vMass[i] = this.mass;
-        }
-        this.vFixed = Array(nMasses);
-        this.vFixed[0] = true;
-        for (var i = 1; i < nMasses; ++i) {
-            this.vFixed[i] = false;
-        }
-    }
-
-    
-    initSprings(nMasses, length) {        
-        this.springs = new Array(nMasses - 1);
-        for (var i = 0; i < nMasses - 1; ++i) {
-          this.springs[i] = { p0: i, p1: i + 1, rest: length };
-        }
-      }
-
-
-    step(dt) {
-        this.computeForces();
-        this.integrate(dt);
-      }
-
 
 
     }
