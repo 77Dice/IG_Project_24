@@ -1,3 +1,35 @@
+1/ divido in 2 il progetto...
+ - una classe per il Rasterization + raytracing
+    - se voglio iniziare da qua posso direttamente unire Ex.6 e Ex.7 almeno cosi 
+    posso subito valutare se e' fattibile o meno... se infatti non e' fattibile posso cambiare subito e passare 
+    ad altri metodi di Shading o altro...
+ - una classe per la simulazione
+    - qui non ci piove... devo implementare Collision Detection(se voglio fare + di un pendolo) + una simulazione...
+    - la simulazione non deve x forza essere MassSpring... potrei anche simulare la posizione dei 2 vertici del pendolo e poi mandare 
+    i dati dei vertici alla classe di rasterization che poi va a printare a schermo l'oggetto che si muove...
+    - non ho bisogno di rendere l'ogetto ANIMABILE... tuttavia in questo caso mi chiedo se sarebbe una simulazione fisica... forse si ma non 
+    come l'abbiamo implementata noi...
+
+2/ devo anche generare un tipo di tesina
+
+3/ Piano B
+ - cosa posso portare se il RayTracing non va???
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 se devo fare una simulazione devo partire...
 da Mass Spring... e capire come creare 
 2 modelli Mass Spring che si parlano...
