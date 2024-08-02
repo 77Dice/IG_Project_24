@@ -1,3 +1,8 @@
+
+
+
+
+
 1/ divido in 2 il progetto...
  - una classe per il Rasterization + raytracing
     - se voglio iniziare da qua posso direttamente unire Ex.6 e Ex.7 almeno cosi 
