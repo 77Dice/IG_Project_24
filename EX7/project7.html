@@ -1172,19 +1172,10 @@ class Pendolum
 {
 	constructor()
 	{
-		this.center = new Vec3( 0, 0, 0 );
-		this.cealing = new Vec3( 0, 1, 0 );
-		this.length = 1;
-		this.angle = 0;
-		this.angVel = 0;
-		this.angAcc = 0;
-		this.mass = 1;
-		this.gravity = 9.8;
-		this.damping = 0.1;
-		this.stiffness = 100;
-		this.restLength = 1;
-		this.time = 0;
-		this.dt = 0.01;
+		this.gravity = new Vec3( 0, -2.0, 0 );
+		this.mass = .1;				
+		this.restitution = .8; // TODO do i need it??
+		this.setMesh( document.getElementById('box.obj').text );
 	}
 
 	startSimulation()
@@ -1214,11 +1205,30 @@ class Pendolum
 	// Reset  -> all the parameters of the pendolum
 	// Step  -> update the position of the pendolum
 	// UpdateMesh -> update the mesh position
-	// setMesh -> add a mesh AROUND the pendolum... NO MASS Spring system...
-
-	setMesh( mesh )
-	{ // add a mesh AROUND the pendolum... NO MASS Spring system...
-		this.mesh = mesh;
+	
+// setMesh -> add a mesh AROUND the pendolum... NO MASS Spring system...
+	setMesh( objdef )
+	{
+		this.mesh = new ObjMesh;
+		this.mesh.parse( objdef );
+		var box = this.mesh.getBoundingBox();
+		var shift = [
+			-(box.min[0]+box.max[0])/2,
+			-(box.min[1]+box.max[1])/2,
+			-(box.min[2]+box.max[2])/2
+		];
+		var size = [
+			(box.max[0]-box.min[0])/2,
+			(box.max[1]-box.min[1])/2,
+			(box.max[2]-box.min[2])/2
+		];
+		var maxSize = Math.max( size[0], size[1], size[2] );
+		var scale = 0.4/maxSize;
+		this.mesh.shiftAndScale( shift, scale );
+		this.mesh.computeNormals();
+		this.reset();
+		// this.initSprings();
+		DrawScene();
 	}
 
 	updateMesh()
