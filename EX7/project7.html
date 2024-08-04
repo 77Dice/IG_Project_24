@@ -98,6 +98,23 @@ class ObjMesh
 		}
 		return { min: min, max: max };
 	}
+
+	// Returns the center of the mesh object
+	// where to apply all forces
+	getCenterOfMesh()
+	{
+		let sumX = 0, sumY = 0, sumZ = 0;
+		let numVertices = this.vpos.length;
+		for (let i = 0; i < this.vpos.length; i++) {
+			sumX += this.vpos[i][0];
+			sumY += this.vpos[i][1];
+			sumZ += this.vpos[i][2];
+		}
+		let middleX = sumX / numVertices;
+		let middleY = sumY / numVertices;
+		let middleZ = sumZ / numVertices;
+		return [middleX, middleY, middleZ];
+	}
 	
 	shiftAndScale( shift, scale )
 	{
@@ -264,7 +281,7 @@ class ObjMesh
 ///////////////////////////////////////////////////////////////////////////////////
 
 class RopeDrawer {
-    constructor(fix, free)
+    constructor(free)
       {
           // Compile the shader program
           this.prog = InitShaderProgram( ropeVShader, ropeFShader );
@@ -279,7 +296,7 @@ class RopeDrawer {
           this.vertexBuffer = gl.createBuffer();
   
           this.vertices = new Float32Array(
-              [fix[0], fix[1], fix[2],
+              [0.0, 1.0, 0.0,
               free[0], free[1], free[2]]
             );
             
@@ -288,10 +305,11 @@ class RopeDrawer {
         }
         
     // update vertex free
+	// TODO!! ma serve una FX per fare Update??
     update(free){
         this.vertices = new Float32Array(
-            [this.vertices[0], this.vertices[1], this.vertices[2],
-            free[0], free[1], free[2]]
+            [0.0, 1.0, 0.0,
+			free[0], free[1], free[2]]
         );
     }
 
@@ -326,6 +344,29 @@ class RopeDrawer {
               }
   
   `;
+
+</script>
+
+<script id="Help_FXs" type="text/javascript">
+///////////////////////////////////////////////////////////////////////////////////
+// some FX to hande things not well defined yet...
+///////////////////////////////////////////////////////////////////////////////////
+
+// return the index of the Vertex in the mesh
+// that is higher in the Y axis
+
+function getRopeVertex(vertPos) {
+  let maxY = -2;
+  let index = -1;
+  console.log(vertPos.length, "VertPos Length");
+  for (let i = 0; i < vertPos.length; i += 3) {
+    if (vertPos[i + 1] > maxY) {
+      maxY = vertPos[i + 1];
+      index = i;
+    }
+  }
+  return index;
+}
 
 </script>
 
@@ -853,7 +894,7 @@ function InitWebGL()
 	
 	// Initialize the programs and buffers for drawing
 	// someDrawer = new SomeDrawer(); // TODO!!
-	ropeDrawer = new RopeDrawer();
+	ropeDrawer = new RopeDrawer([0.0,0.0,0.0]);
 	boxDrawer   = new BoxDrawer();
 	pointDrawer = new PointDrawer();
 	meshDrawer  = new MeshDrawer();
@@ -894,6 +935,8 @@ function DrawScene()
 	// Draw the curve and then the line segments that connect the control points.
 	var nrmTrans = [ MV[0],MV[1],MV[2], MV[4],MV[5],MV[6], MV[8],MV[9],MV[10] ];
 	// someDrawer.draw( MVP, MV, nrmTrans ); // TODO!!
+	// Update ROPE Center
+	//ropeDrawer.update([meshDrawer.GetCenterOfMass()]); //TODO!! PRIMA LA SIMULAZIONE .. .poi Il DRAW..
 	if( showMesh.checked )
 		meshDrawer.draw( MVP, MV, nrmTrans );
 	if ( showBox.checked ) 
@@ -1118,51 +1161,255 @@ var lightViewFS = `
 ///////////////////////////////////////////////////////////////////////////////////
 </script>
 
+<script id="PendolumSimulationCode" type="text/javascript">
+///////////////////////////////////////////////////////////////////////////////////
+// Simulation of One Pendolum, with 1 center of Mass and one Cealing Point...
+///////////////////////////////////////////////////////////////////////////////////
+
+var pendolum;
+
+class Pendolum
+{
+	constructor()
+	{
+		this.center = new Vec3( 0, 0, 0 );
+		this.cealing = new Vec3( 0, 1, 0 );
+		this.length = 1;
+		this.angle = 0;
+		this.angVel = 0;
+		this.angAcc = 0;
+		this.mass = 1;
+		this.gravity = 9.8;
+		this.damping = 0.1;
+		this.stiffness = 100;
+		this.restLength = 1;
+		this.time = 0;
+		this.dt = 0.01;
+	}
+
+	startSimulation()
+	{		
+		if ( ! this.isSimulationRunning() ) 
+			this.timer = setInterval
+			( 
+				function(){ pendolum.step(); }, 
+				document.getElementById('timestep').value 
+			);
+	}
+	isSimulationRunning() { return this.timer !== undefined; }
+	stopSimulation(){clearInterval( this.timer );this.timer = undefined;}
+	restartSimulation() { if ( this.isSimulationRunning() ) { this.stopSimulation(); this.startSimulation(); } }
+	toggleSimulation( btn )
+	{
+		if (this.isSimulationRunning() ) {
+			this.stopSimulation();
+			btn.value = "Start Simulation";
+		} else {
+			this.startSimulation();
+			btn.value = "Stop Simulation";
+		}
+	}
+
+	// TODO 
+	// Reset  -> all the parameters of the pendolum
+	// Step  -> update the position of the pendolum
+	// UpdateMesh -> update the mesh position
+	// setMesh -> add a mesh AROUND the pendolum... NO MASS Spring system...
+
+	setMesh( mesh )
+	{ // add a mesh AROUND the pendolum... NO MASS Spring system...
+		this.mesh = mesh;
+	}
+
+	updateMesh()
+	{ // update the mesh position
+		this.mesh.setVertex( 0, this.center );
+		this.mesh.setVertex( 1, this.cealing );
+	
+	 // update then DRAW...
+	}
+	
+	step()
+	{
+		// TODO... some checks before calling the step function
+	// update Position and velocity of the pendolum
+		PendolumStep();
+		pendolum.updateMesh();
+	// TODO ... update the mesh position
+	}	
+	
+	reset()
+	{ // reset Forces, positions,buffers and MESH!! to initial CONFIG.
+		this.angle = 0;
+		this.angVel = 0;
+		this.angAcc = 0;
+		this.time = 0;
+	}
+
+	 // MOUSE INTERACTION FXs  
+	 // TODO... check THEM if they WORK... and what they need to work...
+	 // mi serve un Point Drawer per farle funzionare??
+	 
+	mouseMove()
+	{
+		var m = MousePos();
+		this.selVert = undefined;
+		var selPt;
+		var minDist = 10;
+		for ( var i=0; i<this.pos.length; ++i ) {
+			var p = this.pos[i];
+			var pv = p.trans(MVP);
+			var px = pv.x / pv.w;
+			var py = pv.y / pv.w;
+			var dx = m.x - px;
+			var dy = m.y - py;
+			var len2 = dx*dx + dy*dy;
+			if ( len2 < 0.001 && len2 < minDist ) {
+				minDist = len2;
+				this.selVert = i;
+				selPt = p;
+			}
+		}
+		if ( pointDrawer.setPoint( selPt ) ) {
+			DrawScene();
+			canvas.className = selPt ? "sel" : "";
+		}
+	}	
+	mouseDown()
+	{
+		if ( this.selVert === undefined ) return false;
+		var mInv = MatrixInverse(MVP);
+		var p = this.pos[ this.selVert ];
+		var pv = p.trans(MVP);
+		this.holdVert = this.pos[ this.selVert ];
+		
+		function mouse4D()
+		{
+			var m = MousePos();
+			return {
+				x: m.x * pv.w,
+				y: m.y * pv.w,
+				z: pv.z,
+				w: pv.w
+			};
+		}
+		
+		function invTrans(v)
+		{
+			return {
+				x: mInv[0]*v.x + mInv[4]*v.y + mInv[ 8]*v.z + mInv[12]*v.w,
+				y: mInv[1]*v.x + mInv[5]*v.y + mInv[ 9]*v.z + mInv[13]*v.w,
+				z: mInv[2]*v.x + mInv[6]*v.y + mInv[10]*v.z + mInv[14]*v.w,
+				w: mInv[3]*v.x + mInv[7]*v.y + mInv[11]*v.z + mInv[15]*v.w
+			};
+		}
+		
+		function mouse3D() { 
+			var m = invTrans(mouse4D());
+			return new Vec3( m.x/m.w, m.y/m.w, m.z/m.w );
+		}
+		
+		var m0 = mouse3D();
+		var ms = this;
+		
+		canvas.onmousemove = function() {
+			var m1 = mouse3D();
+			var d = m1.sub(m0);
+			m0 = { ...m1 };
+			p.inc(d);
+			ms.updateMesh();
+		}
+		return true;		
+	}	
+	mouseUp(){this.holdVert = undefined;}
+	
+}
+
+function PendolumStep()
+{  // TODO!! se voglio posso infilare tutto dento pendoolum.step()
+	
+	var force = this.cealing.sub(this.center);
+		var l = force.len();
+		force.normalize();
+		force.scale( -this.gravity * this.mass );
+		var vel = force.mul( this.dt / this.mass );
+		this.angAcc = Math.asin( force.y / this.gravity );
+		this.angVel += this.angAcc * this.dt;
+		this.angle += this.angVel * this.dt;
+		this.center = this.cealing.add( new Vec3( Math.sin(this.angle), -Math.cos(this.angle), 0 ).mul(this.length) );
+	
+}
+
+
+</script>
+
+
+<script id="vec3" type="text/javascript">	
+	///////////////////////////////////////////////////////////////////////////////////
+	// Below is the Vec3 class definition
+	///////////////////////////////////////////////////////////////////////////////////
+	/*
+	init(x,y,z): sets the x, y, and z coordinates to the given values.
+	copy(): returns a copy of the vector object.
+	set(v): sets the x, y, and z coordinates to the same values as the given vector v.
+	inc(v): increments the x, y, and z coordinate values by adding the coordinate values of the given vector v.
+	dec(v): decrements the x, y, and z coordinate values by subtracting the coordinate values of the given vector v.
+	scale(f): multiplies the x, y, and z coordinates by the given scalar f.
+	add(v): add the given vector v to this vector and returns the resulting vector.
+	sub(v): subtracts the given vector v from this vector and returns the resulting vector.
+	dot(v): computes the dot product of this vector and the given vector v and returns the resulting scalar.
+	cross(v): computes the cross product of this vector and the given vector v and returns the resulting vector.
+	mul(f): multiplies the vector by the given scalar f and returns the result.
+	div(f): divides the vector by the given scalar f and returns the result.
+	len2(): returns the squared length of the vector.
+	len(): returns the length of the vector.
+	unit(): returns the unit vector along the direction of this vector.
+	normalize(): normalizes this vector, turning it into a unit vector.
+	*/
+	class Vec3 {
+		constructor( x, y, z ) { this.init(x,y,z); }
+		init( x, y, z ) { this.x=x; this.y=y; this.z=z; }
+		copy ( ) { return new Vec3( this.x, this.y, this.z ); }
+		set  (v) { this.x =v.x; this.y =v.y; this.z =v.z; }
+		inc  (v) { this.x+=v.x; this.y+=v.y; this.z+=v.z; }
+		dec  (v) { this.x-=v.x; this.y-=v.y; this.z-=v.z; }
+		scale(f) { this.x*=f; this.y*=f; this.z*=f; }
+		add  (v) { return new Vec3( this.x+v.x, this.y+v.y, this.z+v.z ); }
+		sub  (v) { return new Vec3( this.x-v.x, this.y-v.y, this.z-v.z ); }
+		dot  (v) { return this.x*v.x + this.y*v.y + this.z*v.z; }
+		cross(v) { return new Vec3( this.y*v.z-this.z*v.y, this.z*v.x-this.x*v.z, this.x*v.y-this.y*v.x ); }
+		mul  (f) { return new Vec3( this.x*f, this.y*f, this.z*f ); }
+		div  (f) { return new Vec3( this.x/f, this.y/f, this.z/f ); }
+		len2 ( ) { return this.dot(this); }
+		len  ( ) { return Math.sqrt(this.len2()); }
+		unit ( ) { return this.div(this.len()); }
+		normalize() {
+			var l = this.len();
+			this.x /= l;
+			this.y /= l;
+			this.z /= l;
+		}
+		trans(m) {
+			return {
+				x: m[0]*this.x + m[4]*this.y + m[ 8]*this.z + m[12],
+				y: m[1]*this.x + m[5]*this.y + m[ 9]*this.z + m[13],
+				z: m[2]*this.x + m[6]*this.y + m[10]*this.z + m[14],
+				w: m[3]*this.x + m[7]*this.y + m[11]*this.z + m[15]
+			};
+		}
+	}
+	
+	function ToVec3(a) { return new Vec3(a[0],a[1],a[2]); }
+	
+</script>
+
 <script id="MASS_SPRING_SIM" type="text/javascript">
 ///////////////////////////////////////////////////////////////////////////////////
 // Below is the mass-spring system code
 ///////////////////////////////////////////////////////////////////////////////////
 
-var massSpring; // TODO!! cosa salva questo??
+var massSpring; // questo è il riferimento alla simulazione che viene creato in window.onload()
 
-class Vec3 {
-	constructor( x, y, z ) { this.init(x,y,z); }
-	init( x, y, z ) { this.x=x; this.y=y; this.z=z; }
-	copy ( ) { return new Vec3( this.x, this.y, this.z ); }
-	set  (v) { this.x =v.x; this.y =v.y; this.z =v.z; }
-	inc  (v) { this.x+=v.x; this.y+=v.y; this.z+=v.z; }
-	dec  (v) { this.x-=v.x; this.y-=v.y; this.z-=v.z; }
-	scale(f) { this.x*=f; this.y*=f; this.z*=f; }
-	add  (v) { return new Vec3( this.x+v.x, this.y+v.y, this.z+v.z ); }
-	sub  (v) { return new Vec3( this.x-v.x, this.y-v.y, this.z-v.z ); }
-	dot  (v) { return this.x*v.x + this.y*v.y + this.z*v.z; }
-	cross(v) { return new Vec3( this.y*v.z-this.z*v.y, this.z*v.x-this.x*v.z, this.x*v.y-this.y*v.x ); }
-	mul  (f) { return new Vec3( this.x*f, this.y*f, this.z*f ); }
-	div  (f) { return new Vec3( this.x/f, this.y/f, this.z/f ); }
-	len2 ( ) { return this.dot(this); }
-	len  ( ) { return Math.sqrt(this.len2()); }
-	unit ( ) { return this.div(this.len()); }
-	normalize() {
-		var l = this.len();
-		this.x /= l;
-		this.y /= l;
-		this.z /= l;
-	}
-	trans(m) {
-		return {
-			x: m[0]*this.x + m[4]*this.y + m[ 8]*this.z + m[12],
-			y: m[1]*this.x + m[5]*this.y + m[ 9]*this.z + m[13],
-			z: m[2]*this.x + m[6]*this.y + m[10]*this.z + m[14],
-			w: m[3]*this.x + m[7]*this.y + m[11]*this.z + m[15]
-		};
-	}
-}
-
-function ToVec3(a) { return new Vec3(a[0],a[1],a[2]); }
-
-// This function is called for every step of the simulation.
-// Its job is to advance the simulation for the given time step duration dt.
-// It updates the given positions and velocities.
 function SimTimeStep(
   dt,
   positions,
@@ -1174,24 +1421,6 @@ function SimTimeStep(
   gravity,
   restitution
 ) {
-  /*
-init(x,y,z): sets the x, y, and z coordinates to the given values.
-copy(): returns a copy of the vector object.
-set(v): sets the x, y, and z coordinates to the same values as the given vector v.
-inc(v): increments the x, y, and z coordinate values by adding the coordinate values of the given vector v.
-dec(v): decrements the x, y, and z coordinate values by subtracting the coordinate values of the given vector v.
-scale(f): multiplies the x, y, and z coordinates by the given scalar f.
-add(v): add the given vector v to this vector and returns the resulting vector.
-sub(v): subtracts the given vector v from this vector and returns the resulting vector.
-dot(v): computes the dot product of this vector and the given vector v and returns the resulting scalar.
-cross(v): computes the cross product of this vector and the given vector v and returns the resulting vector.
-mul(f): multiplies the vector by the given scalar f and returns the result.
-div(f): divides the vector by the given scalar f and returns the result.
-len2(): returns the squared length of the vector.
-len(): returns the length of the vector.
-unit(): returns the unit vector along the direction of this vector.
-normalize(): normalizes this vector, turning it into a unit vector.
-*/
   var forces = [...Array(positions.length)].map(
     (_, i) => new Vec3(0, gravity.y * particleMass, 0)
   );
@@ -1275,6 +1504,7 @@ class MassSpring {
 		this.restitution = .8;
 		this.setMesh( document.getElementById('box.obj').text );
 	}
+
 	setMesh( objdef )
 	{
 		this.mesh = new ObjMesh;
@@ -1298,19 +1528,8 @@ class MassSpring {
 		this.initSprings();
 		DrawScene();
 	}
-	initSprings()
-	{
-		this.springs = [];
-		for ( var i=0; i<this.pos.length; ++i ) {
-			for ( var j=i+1; j<this.pos.length; ++j ) {
-				var r = this.pos[i].sub(this.pos[j]).len();
-				if ( r > .02 ) 
-				{
-					this.springs.push( { p0:i, p1:j, rest:r } );
-				}
-			}
-		}
-	}
+	
+	
 	reset()
 	{
 		this.pos = Array( this.mesh.vpos.length );
@@ -1339,6 +1558,7 @@ class MassSpring {
 				buffer[bi++] = vals[k].y;
 				buffer[bi++] = vals[k].z;
 			}
+
 			for ( var i=0, bi=0; i<faces.length; ++i ) {
 				var f = faces[i];
 				if ( f.length < 3 ) continue;
@@ -1389,10 +1609,13 @@ class MassSpring {
 		// Update positions and velocities
 		var timestep = document.getElementById('timestep').value;
 		const dt = timestep / 1000;	// time step in seconds
-		const damping = this.damping * this.stiffness * dt;
-		// the Calling to the DeltaT for the next Iteration of the SimulationTODO!!
-		SimTimeStep( dt, this.pos, this.vel, this.springs, this.stiffness, damping, this.mass, this.gravity, this.restitution );
-		
+		const damping = this.damping * this.stiffness * dt;		
+		///////////////////////////////////////////////////////////////////////////////////
+		// Here the TimeStep Simulation Code from EX7
+		// It updates the given positions and velocities
+		SimTimeStep( dt, this.pos, this.vel, this.springs, this.stiffness, damping, this.mass, this.gravity, this.restitution );						
+		///////////////////////////////////////////////////////////////////////////////////
+
 		// make sure that the selected vertex does not change position
 		if ( p ) {
 			this.holdVert.set(p);
@@ -1401,18 +1624,28 @@ class MassSpring {
 		
 		this.updateMesh();
 	}
+	
+	initSprings()
+	{
+		this.springs = [];
+		for ( var i=0; i<this.pos.length; ++i ) {
+			for ( var j=i+1; j<this.pos.length; ++j ) {
+				var r = this.pos[i].sub(this.pos[j]).len();
+				if ( r > .02 ) 
+				{
+					this.springs.push( { p0:i, p1:j, rest:r } );
+				}
+			}
+		}
+	}
 	startSimulation()
 	{
 		var timestep = document.getElementById('timestep').value;
 		if ( ! this.isSimulationRunning() ) this.timer = setInterval( function(){ massSpring.simTimeStep(); }, timestep );
 	}
-	stopSimulation()
-	{
-		clearInterval( this.timer );
-		this.timer = undefined;
-	}
+	stopSimulation(){clearInterval( this.timer );this.timer = undefined;}
 	isSimulationRunning() { return this.timer !== undefined; }
-	restartSimulation() { if ( this.isSimulationRunning() ) { this.stopSimulation(); this.startSimulation(); } }
+	restartSimulation() { if ( this.isSimulationRunning() ) { this.stopSimulation(); this.startSimulation(); } }	
 	toggleSimulation( btn )
 	{
 		if ( this.isSimulationRunning() ) {
@@ -1422,8 +1655,7 @@ class MassSpring {
 			this.startSimulation();
 			btn.value = "Stop Simulation";
 		}
-	}
-	
+	}	
 	mouseMove()
 	{
 		var m = MousePos();
@@ -1448,8 +1680,7 @@ class MassSpring {
 			DrawScene();
 			canvas.className = selPt ? "sel" : "";
 		}
-	}
-	
+	}	
 	mouseDown()
 	{
 		if ( this.selVert === undefined ) return false;
@@ -1495,12 +1726,12 @@ class MassSpring {
 			ms.updateMesh();
 		}
 		return true;		
-	}
-	
+	}	
 	mouseUp()
 	{
 		this.holdVert = undefined;
 	}
+
 }
 
 </script>
@@ -1575,6 +1806,7 @@ window.onload = function() {
 	}
 	
 	//// someSimulation = new SomeSimulation(); TODO!!
+	// from Mass-System Code
 	massSpring = new MassSpring();
 	
 
