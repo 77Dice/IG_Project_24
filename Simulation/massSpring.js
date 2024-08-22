@@ -61,7 +61,7 @@ class MassSpring {
           // connect cealing only to the CENTER mass point
           if (j == this.pos.length - 1 && i == this.pos.length - 2) {
             console.log("Spring-Center/Cealing", i, j, r);
-            this.springs.push({ p0: i, p1: j, rest: r });
+            this.springs.push({ p0: i, p1: j, rest: 0.01 });
           }
         }
       }
@@ -73,7 +73,7 @@ class MassSpring {
     // add one to POS and VEL (no NORM) to add the CENTER mass point
     // +1 for the center mass point
     // +1 for the cealing mass point
-    this.pos = Array(this.mesh.vpos.length + 2);
+    this.pos = Array(this.mesh.l.length + 2);
     for (var i = 0; i < this.pos.length - 2; ++i)
       this.pos[i] = ToVec3(this.mesh.vpos[i]);
     // OPZIONALE: getRopeVertex(this.buffers.positionBuffer)

@@ -1,0 +1,27 @@
+3/ COLLEGARE EX 6 con EX7 e non fare altro...
+
+
+
+--> stessa SIM di prima... dentro PENDOLUM, stessi ATTR. e partiamo da li... OKOK
+
+--> TO FIX mouse MOVE..
+-> come funziona LightView??
+
+--> DEVO CREARE UNA CLASSE A PARTE X LA SIMULAZIONE DEL PENDOLO  OKOKOK
+->  waterfront ball OKOK  spLow works
+-> Ropes OKOK
+-> single html file OKOK
+-> come faccio a muovere la linea con la mesh OKOK
+--> devo collegare una MASHDRawer (sfera) OKOK 
+--> come centrare la rope sulla mesh in muovimento OKOK
+--> come rendere la Corda una Spring OKOKO
+--> fixare tutte le FX che linkano l'interraccia all'oggetto SIM PENDOLUM.. OKOKOK
+
+
+
+
+Mass VAL does not change Period of pendolum
+https://www.youmath.it/lezioni/fisica/dinamica/2973-tensione-filo.html
+https://www.youmath.it/lezioni/fisica/dinamica/2972-forza-centripeta.html
+
+
