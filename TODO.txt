@@ -17,6 +17,25 @@
 --> come rendere la Corda una Spring OKOKO
 --> fixare tutte le FX che linkano l'interraccia all'oggetto SIM PENDOLUM.. OKOKOK
 
+1/ solo un punto nello spazio (magari trovo un modo di colorarlo meglio)
+- rasterization by ROPE... (cosi riesco a capire dove va...)
+2/ STESSE LEGGI dello SPRING system con la differenza che essendo un solo punto non applico SPRING ma solo FORZA PESO...
+++ applico anche collisione con le 6 faccie del CUBO
+3/ SE funziona.... allora applico al punto la TESIONE del FILO ... prendendo come direzione il punto fisso sul soffitto (divido nelle 3 componenti la Ipotetica TENSIONE del filo)
+
+... deviamo come va...
+--> un punto che ha le stesse FORZE della sprint mass , senza la forza SPRING 
+--> Poi Aggiungo la forza di tensione del filo .. 
+Tramite le sue 3 componenti...
+
+4/ ora creare Un altro punto nello spazio con le stesse caratteristiche e un altra LINE RASTERIZATION CLASS
+
+5/ Fare prove su come fare COLLISIONE tra loro
+
+6/ COME RASTERIZZARE una MESH intorno al PUNTO???
+
+
+
 
 
 
