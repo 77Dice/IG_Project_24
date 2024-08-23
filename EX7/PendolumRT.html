@@ -1242,8 +1242,7 @@ class Pendolum
 		this.mesh.computeNormals();
 		this.reset();
 		this.initSpring();
-		DrawScene();
-		console.log("setMesh",this.holdVert,this.selVert)
+		DrawScene();		
 	}
 	
 	// ++ this.buffers = this.mesh.getVertexBuffers();
@@ -1256,8 +1255,7 @@ class Pendolum
 	/// this.vel[1] = new Vec3( 0, 0, 0 );
 	// ++ this.nrm = Array(this.mesh.norm.length);	
 	reset()
-	{		
-		console.log("reset",this.holdVert,this.selVert)
+	{				
 		this.vpos = Array(this.mesh.vpos.length);
 		for ( var i=0; i<this.vpos.length; ++i ) this.vpos[i] = ToVec3(this.mesh.vpos[i]);
 		this.vvel = Array(this.vpos.length);
@@ -1343,14 +1341,35 @@ class Pendolum
     DrawScene();
   }
 	
+  	copyholdVert() {
+		if(Array.isArray(this.holdVert)){
+			let holdVert = Array(this.holdVert.length);
+		for( var i=0; i<this.holdVert.length; ++i )
+			holdVert[i] = this.holdVert[i].copy();
+			return holdVert;
+		}else{
+			return this.holdVert.copy();
+		}		
+	}
+
+	setholdVert( holdVert ) {
+		if(Array.isArray(holdVert)){
+			this.holdVert = Array(holdVert.length);		
+			for( var i=0; i<holdVert.length; ++i )
+				this.holdVert[i] = holdVert[i].copy();
+		}else{
+			this.holdVert.set(holdVert);
+		}
+	}
+
 	step()
 	{
-		// hold.. the position of the selected
-		// sel ... the selected one on the list... (the CEnter of MASS or the Cealing Point)
-		console.log("step",this.holdVert,this.selVert)
-		 // remember the position of the selected vertex, if any
-		 var p = this.holdVert ? this.holdVert.copy() : undefined;
-		 
+		// holdVert ==> List of CenterOFmass + all vertex of the mesh
+		// selVert ==> index of the center of mass Selected
+		console.log("HoldVert",this.holdVert);
+		console.log("selVert",this.selVert);
+		 // remember the position of the selected vertex, if any		 
+		 var p = this.holdVert ? this.copyholdVert() : undefined;
 		 // Update positions and velocities
 		 var timestep = document.getElementById("timestep").value;
 		 const dt = timestep / 1000; // time step in seconds
@@ -1371,18 +1390,18 @@ class Pendolum
 					);
 					
 		// make sure that the selected vertex does not change position
-		if (p) {
-		  this.holdVert.set(p);
-		  // anche tutte le vel. della mesh dovrebbero essere 0.. cosi non si muove
-		  // e si sposta insieme al Punto selezionato
-		  this.rvel[this.selVert].init(0, 0, 0);		  
+		if (p) {		
+		this.setholdVert(p);
+		this.rvel[this.selVert].init(0, 0, 0);		  
+		if(this.selVert != 0)//not cealing Selected			
+			for ( var i=0; i<this.vvel.length; ++i )			
+				this.vvel[i].init(0, 0, 0);				
 		}
 		this.updateMesh();
 	}	
 	 	
 	mouseMove()
-	{
-		console.log("mouseMove");
+	{		
 		var m = MousePos();
 		this.selVert = undefined;
 		var selPt;
@@ -1408,13 +1427,30 @@ class Pendolum
 	}	
 	mouseDown()
 	{
-		console.log("mouseDown");
+		console.log("Click_MOuseDown");
+		console.log(this.selVert,"selVert");		
 		if ( this.selVert === undefined ) return false;
-		var mInv = MatrixInverse(MVP);
-		var p = this.rpos[ this.selVert ];		
-		var pv = p.trans(MVP);
-		this.holdVert = this.rpos[ this.selVert ];
 		
+		var mInv = MatrixInverse(MVP);		
+		var p = this.rpos[ this.selVert ];		
+		var pv = p.trans(MVP);		
+
+		// save for Later...
+		if(this.selVert != 0){//not cealing Selected
+			this.holdVert = new Array(this.vpos.length + 1);
+			this.holdVert[this.vpos.length] = p.copy();
+			for ( var i=0; i<this.vpos.length; ++i ){
+				if( i === this.vpos.length ) 
+					this.holdVert[i] = p;
+				else
+					this.holdVert[i] = this.vpos[i].copy();
+			}
+		}else{
+			this.holdVert = this.rpos[ this.selVert ];
+		}
+			
+			
+				
 		function mouse4D()
 		{
 			var m = MousePos();
@@ -1444,18 +1480,25 @@ class Pendolum
 		var m0 = mouse3D();
 		var ms = this;
 		
+		// Here moves the selected verteces and Center of Masses
 		canvas.onmousemove = function() {
 			var m1 = mouse3D();
 			var d = m1.sub(m0);
 			m0 = { ...m1 };
-			p.inc(d);
+			p.inc(d); // apply trans to the center of mass
+			if(ms.selVert != 0)//not cealing Selected
+				for ( var i=0; i<ms.vpos.length; ++i ) 				
+					ms.vpos[i].inc(d);
+			// call for update
 			ms.updateMesh();
 		}
 		return true;		
 	}	
-	mouseUp(){
-		console.log("mouseUp");
-		this.holdVert = undefined;}
+
+	mouseUp()
+	{		
+		this.holdVert = undefined;
+	}
 	
 }
 
