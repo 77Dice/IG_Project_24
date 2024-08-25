@@ -281,7 +281,7 @@ class ObjMesh
 class RopeDrawer {
     constructor()
       {
-          this.vertPos = [];           
+        this.vertPos = [];           
 
 		this.ropeVShader =
    				`attribute vec3 coordinates;
@@ -906,8 +906,9 @@ function MatrixInverse( m )
 // var someDrawer; // per i 2 punti + la Linea tra i 2? TODO!!
 var boxDrawer;
 var pointDrawer;
-var meshDrawer;
-var ropeDrawer;
+var meshDrawers;
+var ropeDrawers;
+var nSpheres = 5; // TODO... Add controller for this
 var canvas, gl;
 // initial camera Positions
 var rotX=0, rotY=0, transY=0, transZ=3;
@@ -932,8 +933,14 @@ function InitWebGL()
 	// Initialize the programs and buffers for drawing		
 	boxDrawer   = new BoxDrawer();
 	pointDrawer = new PointDrawer();
-	meshDrawer  = new MeshDrawer();	
-	ropeDrawer = new RopeDrawer();
+	meshDrawers = [];
+	ropeDrawers = [];
+	for (var i = 0; i < nSpheres; i++) {		
+		//meshDrawer  = new MeshDrawer();	
+		//ropeDrawer = new RopeDrawer();	
+		meshDrawers.push(new MeshDrawer());
+		ropeDrawers.push(new RopeDrawer());
+	}
 	
 	// Set the viewport size
 	UpdateCanvasSize();
@@ -972,11 +979,13 @@ function DrawScene()
 	var nrmTrans = [ MV[0],MV[1],MV[2], MV[4],MV[5],MV[6], MV[8],MV[9],MV[10] ];		
 
 	if( showMesh.checked )
-		meshDrawer.draw( MVP, MV, nrmTrans );
+		for( var i=0; i<nSpheres; i++ )
+			meshDrawers[i].draw( MVP, MV, nrmTrans );					
 	if ( showBox.checked ) 
 		boxDrawer.draw( MVP );	
 	if( showRope.checked )
-		ropeDrawer.draw( MVP );		
+		for( var i=0; i<nSpheres; i++ )
+			ropeDrawers[i].draw( MVP );		
 	pointDrawer.draw( MVP );
 }
 
@@ -1138,7 +1147,9 @@ class LightView
 		var sy = Math.sin( this.rotY );
 		var cx = Math.cos( this.rotX );
 		var sx = Math.sin( this.rotX );
-		meshDrawer.setLightDir( -sy, cy*sx, -cy*cx );
+		for( var i=0; i<nSpheres; i++ )
+			meshDrawers[i].setLightDir( -sy, cy*sx, -cy*cx );
+		//meshDrawer.setLightDir( -sy, cy*sx, -cy*cx );
 		DrawScene();
 	}
 	
@@ -1204,12 +1215,19 @@ class Pendolum
 {
 	constructor()
 	{ //TODO ... cosa mi serve per inizializzare il pendolum???
-		// TUTTO x 4 
-		// from massSpringSystem
+		// TUTTO x 5
+		// from massSpringSystem		
 		this.gravity = new Vec3( 0, -2.0, 0 );
 		this.mass = .1;		
-		this.restitution = .8; // restituzione
-		this.meshes = [];
+		this.restitution = .8; // restituzione		
+		this.meshes = new Array(nSpheres);
+		this.vPositions = new Array(nSpheres);
+		this.vVelocities = new Array(nSpheres);
+		this.normals = new Array(nSpheres);
+		this.buffers = new Array(nSpheres);
+		this.rPositions = new Array(nSpheres);
+		this.rVelocities = new Array(nSpheres);
+		this.springs = new Array(nSpheres);
 		this.setMesh( document.getElementById('box.obj').text );
 		// new for the pendolum		
 	}
@@ -1222,7 +1240,28 @@ class Pendolum
 	/// this.norm = [];	// surface normals
 	/// this.nfac = [];	// face surface normal indices
 	setMesh( objdef )
-	{		
+	{
+		for( var i=0; i<nSpheres; ++i ) {
+			this.meshes[i] = new ObjMesh;
+			this.meshes[i].parse( objdef );
+			var box = this.meshes[i].getBoundingBox();
+			var shift = [
+				-(box.min[0]+box.max[0])/2,
+				-(box.min[1]+box.max[1])/2,
+				-(box.min[2]+box.max[2])/2
+			];
+			var size = [
+				(box.max[0]-box.min[0])/2,
+				(box.max[1]-box.min[1])/2,
+				(box.max[2]-box.min[2])/2
+			];
+			var maxSize = Math.max( size[0], size[1], size[2] );
+			var scale = 0.1/maxSize;
+			this.meshes[i].shiftAndScale( shift, scale );
+			this.meshes[i].computeNormals();
+		}
+		/*
+		{
 		this.mesh = new ObjMesh;
 		this.mesh.parse( objdef );
 		var box = this.mesh.getBoundingBox();
@@ -1240,6 +1279,8 @@ class Pendolum
 		var scale = 0.1/maxSize;
 		this.mesh.shiftAndScale( shift, scale );
 		this.mesh.computeNormals();
+		}
+		*/
 		this.reset();
 		this.initSpring();
 		DrawScene();		
@@ -1255,7 +1296,35 @@ class Pendolum
 	/// this.vel[1] = new Vec3( 0, 0, 0 );
 	// ++ this.nrm = Array(this.mesh.norm.length);	
 	reset()
-	{				
+	{		
+		this.rPositions[0] = [new Vec3(0.4,1,0),new Vec3(0.4,0,0)];
+		this.rPositions[1] = [new Vec3(0.2,1,0),new Vec3(0.2,0,0)];
+		this.rPositions[2] = [new Vec3(0,1,0),new Vec3(0,0,0)];
+		this.rPositions[3] = [new Vec3(-0.2,1,0),new Vec3(-0.2,0,0)];
+		this.rPositions[4] = [new Vec3(-0.4,1,0),new Vec3(-0.4,0,0)];	
+		for( var i=0; i<nSpheres; ++i ) {
+			this.vPositions[i] = Array(this.meshes[i].vpos.length);
+			for ( var j=0; j<this.vPositions[i].length; ++j ) 
+				this.vPositions[i][j] = ToVec3(this.meshes[i].vpos[j]);
+			this.vVelocities[i] = Array(this.vPositions[i].length);
+			for ( var j=0; j<this.vVelocities[i].length; ++j ) 
+				this.vVelocities[i][j] = new Vec3( 0, 0, 0 );
+			this.normals[i] = Array(this.meshes[i].norm.length);
+			for ( var j=0; j<this.normals[i].length; ++j ) 
+				this.normals[i][j] = ToVec3(this.meshes[i].norm[j]);			
+			
+			this.rVelocities[i] = [new Vec3(0,0,0),new Vec3(0,0,0)];
+			// Update the mesh drawers and Rope Drawers
+			this.buffers[i] = this.meshes[i].getVertexBuffers();			
+			ropeDrawers[i].setRope(this.rPositions[i]);
+			meshDrawers[i].setMesh(
+				this.buffers[i].positionBuffer,
+				this.buffers[i].texCoordBuffer,
+				this.buffers[i].normalBuffer
+			);
+		}				
+		/*
+		{
 		this.vpos = Array(this.mesh.vpos.length);
 		for ( var i=0; i<this.vpos.length; ++i ) this.vpos[i] = ToVec3(this.mesh.vpos[i]);
 		this.vvel = Array(this.vpos.length);
@@ -1265,19 +1334,22 @@ class Pendolum
 
 		this.rpos = [new Vec3(0,1,0),new Vec3(0,0,0)];
 		this.rvel = [new Vec3(0,0,0),new Vec3(0,0,0)]; 				   
-		
-		// Update the mesh drawer and Rope Drawer		
+			
 		ropeDrawer.setRope(this.rpos);
 		this.buffers = this.mesh.getVertexBuffers();
     	meshDrawer.setMesh(this.buffers.positionBuffer,this.buffers.texCoordBuffer,this.buffers.normalBuffer);
 		
+		}
+		*/		
 	}
 
 	//initialize the REST length of the spring	
-	initSpring() {  				
-		var r = this.rpos[0].sub(this.rpos[1]).len();		                		
-		this.springs = { p0: 0, p1: 1, rest: r };        
-        }      
+	initSpring() {  
+		for( var i=0; i<nSpheres; ++i ) {
+			var r = this.rPositions[i][0].sub(this.rPositions[i][1]).len();		                		
+			this.springs[i] = { p0: 0, p1: 1, rest: r };      
+		}
+	}
 
 
 	startSimulation()
@@ -1305,6 +1377,54 @@ class Pendolum
 	
 	
 	updateMesh() {    
+		for( var i=0; i<nSpheres; ++i ) {
+			// update the position buffer
+			updateBuffer(
+				this.buffers[i].positionBuffer,
+				this.meshes[i].face,
+				this.vPositions[i]
+			);
+			
+			// update normals
+			for (var j = 0; j < this.normals[i].length; ++j) 
+				this.normals[i][j].init(0, 0, 0);
+			for (var j = 0; j < this.meshes[i].face.length; ++j) {
+				var f = this.meshes[i].face[j];
+				var nf = this.meshes[i].nfac[j];
+				var v0 = this.vPositions[i][f[0]];
+				for (var k = 1; k < f.length - 1; ++k) {
+					var v1 = this.vPositions[i][f[k]];
+					var v2 = this.vPositions[i][f[k + 1]];
+					var e0 = v1.sub(v0);
+					var e1 = v2.sub(v0);
+					var n = e0.cross(e1);
+					n = n.unit();
+					this.normals[i][nf[0]].inc(n);
+					this.normals[i][nf[k]].inc(n);
+					this.normals[i][nf[k + 1]].inc(n);
+				}
+			}
+			for (var j = 0; j < this.normals[i].length; ++j) 
+				this.normals[i][j].normalize();
+			updateBuffer(
+				this.buffers[i].normalBuffer,
+				this.meshes[i].nfac,
+				this.normals[i]
+			);
+
+			// Update the mesh,Rope
+			ropeDrawers[i].setRope(this.rPositions[i]);
+			meshDrawers[i].setMesh(
+				this.buffers[i].positionBuffer,
+				this.buffers[i].texCoordBuffer,
+				this.buffers[i].normalBuffer
+			);
+		}
+		// update Point Drawer and redraw scene
+		pointDrawer.updatePoint();
+		DrawScene();		
+	/*
+	{
     // update the position buffer
     updateBuffer(this.buffers.positionBuffer, this.mesh.face, this.vpos);
 
@@ -1340,7 +1460,9 @@ class Pendolum
 
     DrawScene();
   }
-	
+	*/	
+	}
+
   	copyholdVert() {
 		if(Array.isArray(this.holdVert)){
 			let holdVert = Array(this.holdVert.length);
@@ -1370,17 +1492,17 @@ class Pendolum
 		 // Update positions and velocities
 		 var timestep = document.getElementById("timestep").value;
 		 const dt = timestep / 1000; // time step in seconds		 	 
-		 PendolumStep(
+		 PendolumStep( // make it for 4 Pendolums...
 					  dt,
-					  this.rpos,
-					  this.rvel,
-					  this.vpos,
-					  this.vvel,
+					  this.rPositions,
+					  this.rVelocities,
+					  this.vPositions,
+					  this.vVelocities,
 					  this.springs,					  
 					  this.mass,
 					  this.gravity,
 					  this.restitution,
-					  this.mesh.getBoundingBox()
+					  this.meshes.map( m => m.getBoundingBox() )
 					);
 					
 		// make sure that the selected vertex does not change position
@@ -1493,17 +1615,18 @@ class Pendolum
 	
 }
 
-function PendolumStep(dt,
-  rPositions,
-  rVelocities, 
-  vPositions,  
-  vVelocities,
-  springs,
-  particleMass,
-  gravity,
-  restitution,
-  box)
-{
+function PendolumStep(
+	dt,
+  	rPositions,
+  	rVelocities, 
+  	vPositions,  
+  	vVelocities,
+  	springs,
+  	particleMass,
+  	gravity,
+  	restitution,
+  	boundingBoxes)
+	{
 	//console.log(rPositions,"rPositions");
 	//console.log(rVelocities,"rVelocities");
 	//console.log(springs,"springs");
@@ -1515,18 +1638,16 @@ function PendolumStep(dt,
 
 	var forces = [...Array(rPositions.length)].map(
     (_, i) => new Vec3(0, gravity.y * particleMass, 0)
-  	);
-
-	// springs = {p0: , p1: , rest: } 
+  	); // one for each Center of Mass, no Ceaing Points
+	console.log(forces,"forces");
+	// springs = {p0: 0, p1:1 , rest: } 
 	let p0 = springs.p0;
 	let p0Pos = rPositions[p0]; //Vec3
 	let p0Vel = rVelocities[p0]; //Vec3
 	let p1 = springs.p1;
 	let p1Pos = rPositions[p1];
-	let p1Vel = rVelocities[p1];
-	let restLength = springs.rest; //float			
-	let lSpring = p1Pos.sub(p0Pos).len();	
-	let lVertex = vPositions.map((pos, i) => pos.sub(p0Pos).len());		
+	let p1Vel = rVelocities[p1];		
+	let lSpring = p1Pos.sub(p0Pos).len();		
 	
 	// tension force => mg*cosTheta
 	// Centripetal force => m*v^2/r
@@ -2078,7 +2199,9 @@ window.onload = function() {
 	}
 	
 	//massSpring = new MassSpring();	
-	pendolum = new Pendolum();		
+	nSpheres = 5;
+	pendolum = new Pendolum();
+	
 	console.log("Pendolum",pendolum);
 
 	SetGravity  ( document.getElementById('gravity') );
@@ -2167,7 +2290,9 @@ function SetShininess( param )
 	var exp = param.value;
 	var s = Math.pow(10,exp/25);
 	document.getElementById('shininess-value').innerText = s.toFixed( s < 10 ? 2 : 0 );
-	meshDrawer.setShininess(s);
+	for(var i=0; i<nSpheres; i++)
+		meshDrawers[i].setShininess(s);
+	//meshDrawer.setShininess(s);
 	DrawScene();
 }
 
