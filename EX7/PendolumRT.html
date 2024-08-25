@@ -1204,12 +1204,12 @@ class Pendolum
 {
 	constructor()
 	{ //TODO ... cosa mi serve per inizializzare il pendolum???
+		// TUTTO x 4 
 		// from massSpringSystem
 		this.gravity = new Vec3( 0, -2.0, 0 );
-		this.mass = .1;
-		this.stiffness = 1; // rigidezza
-		this.damping = 1; // smorzamento
+		this.mass = .1;		
 		this.restitution = .8; // restituzione
+		this.meshes = [];
 		this.setMesh( document.getElementById('box.obj').text );
 		// new for the pendolum		
 	}
@@ -1222,7 +1222,7 @@ class Pendolum
 	/// this.norm = [];	// surface normals
 	/// this.nfac = [];	// face surface normal indices
 	setMesh( objdef )
-	{
+	{		
 		this.mesh = new ObjMesh;
 		this.mesh.parse( objdef );
 		var box = this.mesh.getBoundingBox();
@@ -1369,17 +1369,14 @@ class Pendolum
 		 var p = this.holdVert ? this.copyholdVert() : undefined;
 		 // Update positions and velocities
 		 var timestep = document.getElementById("timestep").value;
-		 const dt = timestep / 1000; // time step in seconds
-		 const damping = this.damping * this.stiffness * dt;		 
+		 const dt = timestep / 1000; // time step in seconds		 	 
 		 PendolumStep(
 					  dt,
 					  this.rpos,
 					  this.rvel,
 					  this.vpos,
 					  this.vvel,
-					  this.springs,
-					  this.stiffness,
-					  damping,
+					  this.springs,					  
 					  this.mass,
 					  this.gravity,
 					  this.restitution,
@@ -1502,8 +1499,6 @@ function PendolumStep(dt,
   vPositions,  
   vVelocities,
   springs,
-  stiffness,
-  damping,
   particleMass,
   gravity,
   restitution,
@@ -1554,18 +1549,8 @@ function PendolumStep(dt,
 		vel.inc(acc.mul(dt));			
 		vPositions[i].inc(vel.mul(dt));
 	});
-
-	// punto p1 sulla sfera centrata in p0 con raggio lSpring....?
-	///.....
-
 	
-	//console.log((lSpring - rPositions[p1].sub(rPositions[p0]).len()).toFixed(5));
-	// Handle collisions with the walls
-	// given the Bounding Box of the Mesh,
-	// when it hits the wall, all the vertices are reflected
-	// as a rigid body!	
-	// ONLY FOR CENTER OF MASS PARTICLEs
-	//console.log("box",box);
+	// Collision Detection and Response
 	p1Pos = rPositions[p1];
 	p1Vel = rVelocities[p1];  	
 	let xMax = 1.0 - box.max[0], xMin = -1.0 - box.min[0];	
@@ -2097,8 +2082,7 @@ window.onload = function() {
 	console.log("Pendolum",pendolum);
 
 	SetGravity  ( document.getElementById('gravity') );
-	SetMass     ( document.getElementById('mass') );
-	SetStiffness( document.getElementById('stiffness') );
+	SetMass     ( document.getElementById('mass') );	
 	SetShininess( document.getElementById('shininess-exp') );
 
 	DrawScene();
@@ -2159,10 +2143,6 @@ function SetTimeStepSize( param )
 	document.getElementById('timestep-value').innerText = s + " ms";
 }
 
-// TODO...
-// potrei definire i parametri della corda per il pendolo...
-// nel caso fosse estensibile...(non lo e' per ora)
-
 function SetGravity( param )
 {
 	var v = param.value;
@@ -2178,25 +2158,8 @@ function SetMass( param )
 	var s = v / 200;
 	document.getElementById('mass-value').innerText = s.toFixed( 3 );
 	pendolum.mass = s;
+	console.log("pendolum.mass",pendolum.mass);
 	//massSpring.mass = s;
-}
-
-function SetStiffness( param )
-{
-	var v = param.value;
-	var s = v / 20;
-	document.getElementById('stiffness-value').innerText = s.toFixed( 2 );
-	//massSpring.stiffness = s;
-	pendolum.stiffness = s;
-}
-
-function SetDamping( param )
-{
-	var v = param.value;
-	var s = v / 20;
-	document.getElementById('damping-value').innerText = s.toFixed( 2 );
-	pendolum.damping = s;	
-	//massSpring.damping = s;
 }
 
 function SetShininess( param )
@@ -2385,10 +2348,7 @@ input[type=button] {
 <div class="control"><input type="button" value="Reset" onclick="pendolum.reset();DrawScene()"></div>
 <div class="control"><span id="timestep-label">Time Step Size:</span><span class="value" id="timestep-value">20 ms</span><input id="timestep" type="range" min="1" max="100" value="20" oninput="SetTimeStepSize(this)" onchange="pendolum.restartSimulation()" ondblclick="this.value=20;this.oninput();this.onchange()"/></div>
 <div class="control"><span id="gravity-label">Gravity:</span><span class="value" id="gravity-value">1</span><input id="gravity" type="range" min="0" max="100" value="20" oninput="SetGravity(this)" ondblclick="this.value=20;this.oninput()"/></div>
-<div class="control"><span id="mass-label">Del_?Mass:</span><span class="value" id="mass-value">1</span><input id="mass" type="range" min="1" max="100" value="20" oninput="SetMass(this)" ondblclick="this.value=20;this.oninput()"/></div>
-<div class="control"><span id="stiffness-label">Del_Stiffness:</span><span class="value" id="stiffness-value">1</span><input id="stiffness" type="range" min="0" max="100" value="20" oninput="SetStiffness(this)" ondblclick="this.value=20;this.oninput()"/></div>
-<div class="control"><span id="damping-label">Del_Damping:</span><span class="value" id="damping-value">1.00</span><input id="damping" type="range" min="0" max="100" value="20" oninput="SetDamping(this)" ondblclick="this.value=20;this.oninput()"/></div>
-<div class="control"><span id="length-label">Length:</span><span class="value" id="length-value">1.00</span><input id="lengthPendolum" type="range" min="0" max="100" value="20" oninput="SetLength(this)" ondblclick="this.value=20;this.oninput()"/></div>
+<div class="control"><span id="mass-label">Mass:</span><span class="value" id="mass-value">1</span><input id="mass" type="range" min="1" max="100" value="20" oninput="SetMass(this)" ondblclick="this.value=20;this.oninput()"/></div>
 </div>
 <div class="control-group">
 	Show:<br/>
