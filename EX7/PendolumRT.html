@@ -118,7 +118,7 @@ class ObjMesh
 	shiftAndScale( shift, scale )
 	{
 		for ( var i=0; i<this.vpos.length; ++i ) {
-			for ( var j=0; j<3; ++j ) {
+			for ( var j=0; j<3; ++j ) {				
 				this.vpos[i][j] = (this.vpos[i][j] + shift[j]) * scale;
 			}
 		}
@@ -548,7 +548,7 @@ class MeshDrawer {
 
   draw(matrixMVP, matrixMV, matrixNormal) {
     // clear the canvas
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    //gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.prog);
     // set Uniforms
     gl.uniformMatrix4fv(this.mvp, false, matrixMVP);
@@ -573,8 +573,8 @@ class MeshDrawer {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.normBuffer);
     gl.vertexAttribPointer(this.normPos, 3, gl.FLOAT, false, 0, 0);
     gl.enableVertexAttribArray(this.normPos);
-    // draw
-    gl.drawArrays(gl.TRIANGLES, 0, this.numTriangles);
+    // draw	                       
+    gl.drawArrays(gl.TRIANGLES, 0, this.numTriangles);	
   }
 
   // If you perform shading in the camera space,
@@ -1220,6 +1220,7 @@ class Pendolum
 		this.gravity = new Vec3( 0, -2.0, 0 );
 		this.mass = .1;		
 		this.restitution = .8; // restituzione		
+		this.damping = .01; // smorzamento
 		this.meshes = new Array(nSpheres);
 		this.vPositions = new Array(nSpheres);
 		this.vVelocities = new Array(nSpheres);
@@ -1241,24 +1242,32 @@ class Pendolum
 	/// this.nfac = [];	// face surface normal indices
 	setMesh( objdef )
 	{
+		var postShift = new Array(nSpheres);		
+		postShift[0] = [0.4,0,0];
+		postShift[1] = [0.2,0,0];
+		postShift[2] = [0,0,0];
+		postShift[3] = [-0.2,0,0];
+		postShift[4] = [-0.4,0,0];
+
 		for( var i=0; i<nSpheres; ++i ) {
 			this.meshes[i] = new ObjMesh;
 			this.meshes[i].parse( objdef );
-			var box = this.meshes[i].getBoundingBox();
+			var box = this.meshes[i].getBoundingBox();			
 			var shift = [
 				-(box.min[0]+box.max[0])/2,
 				-(box.min[1]+box.max[1])/2,
 				-(box.min[2]+box.max[2])/2
-			];
+			];						
 			var size = [
 				(box.max[0]-box.min[0])/2,
 				(box.max[1]-box.min[1])/2,
 				(box.max[2]-box.min[2])/2
-			];
+			];			
 			var maxSize = Math.max( size[0], size[1], size[2] );
 			var scale = 0.1/maxSize;
 			this.meshes[i].shiftAndScale( shift, scale );
-			this.meshes[i].computeNormals();
+			this.meshes[i].shiftAndScale( postShift[i], 1 );
+			this.meshes[i].computeNormals();			
 		}
 		/*
 		{
@@ -1485,14 +1494,14 @@ class Pendolum
 
 	step()
 	{
-		// holdVert ==> List of CenterOFmass + all vertex of the mesh
-		// selVert ==> index of the center of mass Selected
+		// holdVert ==> List of CenterOFmass + all vertex of one mesh
+		// selRope ==> index of the center of mass Selected
 		 // remember the position of the selected vertex, if any		 
 		 var p = this.holdVert ? this.copyholdVert() : undefined;
 		 // Update positions and velocities
 		 var timestep = document.getElementById("timestep").value;
 		 const dt = timestep / 1000; // time step in seconds		 	 
-		 PendolumStep( // make it for 4 Pendolums...
+		 PendolumStep(
 					  dt,
 					  this.rPositions,
 					  this.rVelocities,
@@ -1502,16 +1511,21 @@ class Pendolum
 					  this.mass,
 					  this.gravity,
 					  this.restitution,
-					  this.meshes.map( m => m.getBoundingBox() )
+					  this.damping,
+					  // just the central mesh for Collision Detection
+					  this.meshes[2].getBoundingBox()
 					);
 					
-		// make sure that the selected vertex does not change position
+		// make sure that the selected vertex does not change position	
+		// TODO... zero needs to CHANGE!!!	
 		if (p) {		
-		this.setholdVert(p);
-		this.rvel[this.selVert].init(0, 0, 0);		  
-		if(this.selVert != 0)//not cealing Selected			
-			for ( var i=0; i<this.vvel.length; ++i )			
-				this.vvel[i].init(0, 0, 0);				
+			let pendolumNum = this.selRope[0];
+			let pendolumVert = this.selRope[1];
+			this.setholdVert(p);
+			this.rVelocities[pendolumNum][0].init(0, 0, 0);
+			this.rVelocities[pendolumNum][1].init(0, 0, 0);				
+			for ( var i=0; i<this.vVelocities[pendolumNum].length; ++i )			
+				this.vVelocities[pendolumNum][i].init(0, 0, 0);				
 		}
 		this.updateMesh();
 	}	
@@ -1519,21 +1533,23 @@ class Pendolum
 	mouseMove()
 	{		
 		var m = MousePos();
-		this.selVert = undefined;
+		this.selRope = undefined;
 		var selPt;
 		var minDist = 10;
-		for ( var i=0; i<this.rpos.length; ++i ) {
-			var p = this.rpos[i];
-			var pv = p.trans(MVP);
-			var px = pv.x / pv.w;
-			var py = pv.y / pv.w;
-			var dx = m.x - px;
-			var dy = m.y - py;
-			var len2 = dx*dx + dy*dy;
-			if ( len2 < 0.001 && len2 < minDist ) {
-				minDist = len2;
-				this.selVert = i;
-				selPt = p;
+		for ( var i=0; i<this.rPositions.length; ++i ) {
+			for( var j=0; j<this.rPositions[i].length; ++j ) {
+				var p = this.rPositions[i][j];
+				var pv = p.trans(MVP);
+				var px = pv.x / pv.w;
+				var py = pv.y / pv.w;
+				var dx = m.x - px;
+				var dy = m.y - py;
+				var len2 = dx*dx + dy*dy;
+				if ( len2 < 0.001 && len2 < minDist ) {
+					minDist = len2;
+					this.selRope = [i,j];
+					selPt = p;
+				}
 			}
 		}		
 		if ( pointDrawer.setPoint( selPt ) ) {
@@ -1543,24 +1559,26 @@ class Pendolum
 	}	
 	mouseDown()
 	{			
-		if ( this.selVert === undefined ) return false;
+		if ( this.selRope === undefined ) return false;
 		
-		var mInv = MatrixInverse(MVP);		
-		var p = this.rpos[ this.selVert ];		
+		var mInv = MatrixInverse(MVP);	
+		var pendolumNum = this.selRope[0];			
+		var p = this.rPositions[ this.selRope[0] ][ this.selRope[1] ];				
 		var pv = p.trans(MVP);		
 
 		// save for Later...
-		if(this.selVert != 0){//not cealing Selected
-			this.holdVert = new Array(this.vpos.length + 1);
-			this.holdVert[this.vpos.length] = p.copy();
-			for ( var i=0; i<this.vpos.length; ++i ){
-				if( i === this.vpos.length ) 
+		if(this.selRope[1] != 0){//not cealing Selected
+			this.holdVert = new Array(this.vPositions[pendolumNum].length + 1);
+			// save center as last element
+			this.holdVert[this.vPositions[pendolumNum].length] = p.copy();
+			for ( var i=0; i<this.vPositions[pendolumNum].length; ++i ){
+				if( i === this.vPositions[pendolumNum].length ) 
 					this.holdVert[i] = p;
 				else
-					this.holdVert[i] = this.vpos[i].copy();
-			}
+					this.holdVert[i] = this.vPositions[pendolumNum][i].copy();
+			}			
 		}else{
-			this.holdVert = this.rpos[ this.selVert ];
+			this.holdVert = this.rPositions[ this.selRope[0] ][ this.selRope[1] ].copy();
 		}
 			
 			
@@ -1594,15 +1612,23 @@ class Pendolum
 		var m0 = mouse3D();
 		var ms = this;
 		
-		// Here moves the selected verteces and Center of Masses
+		// Here moves the selected verteces and Center of Masses\
+		// Also Update length of the spring(pendolum)
 		canvas.onmousemove = function() {
 			var m1 = mouse3D();
 			var d = m1.sub(m0);
 			m0 = { ...m1 };
 			p.inc(d); // apply trans to the center of mass
-			if(ms.selVert != 0)//not cealing Selected
-				for ( var i=0; i<ms.vpos.length; ++i ) 				
-					ms.vpos[i].inc(d);
+			if(ms.selRope[1] != 0)//not cealing Selected
+				for ( var i=0; i<ms.vPositions[pendolumNum].length; ++i ) 				
+					ms.vPositions[pendolumNum][i].inc(d);
+			// Update the length of the spring
+			var r = ms.rPositions[pendolumNum][0].sub(ms.rPositions[pendolumNum][1]).len();
+			ms.springs[pendolumNum].rest = r;
+			// init velocity to zero
+			ms.vVelocities[pendolumNum].forEach((vVel, i) => {
+				vVel.init(0, 0, 0);
+			});			
 			// call for update
 			ms.updateMesh();
 		}
@@ -1625,7 +1651,8 @@ function PendolumStep(
   	particleMass,
   	gravity,
   	restitution,
-  	boundingBoxes)
+	damping,
+  	box)
 	{
 	//console.log(rPositions,"rPositions");
 	//console.log(rVelocities,"rVelocities");
@@ -1636,44 +1663,197 @@ function PendolumStep(
 	//console.log(gravity,"gravity");
 	//console.log(restitution,"restitution");
 
+	// just one for every center of mass 
+	// (not counting cealing points)
 	var forces = [...Array(rPositions.length)].map(
-    (_, i) => new Vec3(0, gravity.y * particleMass, 0)
-  	); // one for each Center of Mass, no Ceaing Points
-	console.log(forces,"forces");
-	// springs = {p0: 0, p1:1 , rest: } 
-	let p0 = springs.p0;
-	let p0Pos = rPositions[p0]; //Vec3
-	let p0Vel = rVelocities[p0]; //Vec3
-	let p1 = springs.p1;
-	let p1Pos = rPositions[p1];
-	let p1Vel = rVelocities[p1];		
-	let lSpring = p1Pos.sub(p0Pos).len();		
+    (_, i) => new Vec3(0, gravity.y * particleMass, 0));	
 	
-	// tension force => mg*cosTheta
-	// Centripetal force => m*v^2/r
-	let tensionDir = p1Pos.sub(p0Pos).div(lSpring);
-	let cosTheta = tensionDir.dot(new Vec3(0, 1, 0));			
-	let v = p1Vel.len();// velocita' tangenziale
-	let tension = particleMass * gravity.y * cosTheta;
-	let centripetal = particleMass * v * v / lSpring;	
-	let tensionForceP0 = tensionDir.mul(tension + centripetal);
-	let tensionForceP1 = tensionForceP0.mul(-1);
-	forces[p1] = forces[p1].add(tensionForceP1);	
+	forces.forEach((forceVector, pNumb) => {		
+		// springs = {p0: 0, p1: 1 , rest: } ALWAYS...
+		// TODO... cancello springs???
+		let p0Pos = rPositions[pNumb][0]; //Vec3		
+		let p1Pos = rPositions[pNumb][1];
+		let p1VelTang = rVelocities[pNumb][1].len2();// velocita' tangenziale		
+		let pendolLength = p1Pos.sub(p0Pos).len();	
+		let rest = springs[pNumb].rest;				
+		let pendolDir = p1Pos.sub(p0Pos).unit();
+		let cosTheta = pendolDir.dot(new Vec3(0, 1, 0));
+				
+		// tension force => mg*cosTheta
+		let tension = particleMass * gravity.y * (cosTheta);
+		let tensionForceP0 = pendolDir.mul(tension);
+		let tensionForceP1 = tensionForceP0.mul(-1);
+		// Centripetal force => m*v^2/r
+		let centripetal = particleMass * p1VelTang / pendolLength; //Rest?
+		let centripetalForceP0 = pendolDir.mul(centripetal);
+		let centripetalForceP1 = centripetalForceP0.mul(-1);
+		// damping force => -damping*v		
+		let dampingForceP1 = rVelocities[pNumb][1].mul(-damping);
 
+		forces[pNumb] = forces[pNumb]
+		.add(tensionForceP1)
+		.add(centripetalForceP1)
+		.add(dampingForceP1);
+	});
 	
-  	// Compute Acceleration for ONLY ONE PARTICLE...
-	var acc = forces[p1].div(particleMass);    	
-  	// Semi-Implicit Euler Integration
-	rVelocities[p1].inc(acc.mul(dt));	
-	rPositions[p1].inc(rVelocities[p1].mul(dt));
-	vVelocities.forEach((vel,i) => {
-		vel.inc(acc.mul(dt));			
-		vPositions[i].inc(vel.mul(dt));
+	// Update positions and velocities 
+	// of center of Mass & all vertex
+	rVelocities.forEach((rVel, pNumb) => {		
+		// Compute Acceleration for center of Mass...
+		let acc = forces[pNumb].div(particleMass);
+		// Semi-Implicit Euler Integration
+		rVel[1].inc(acc.mul(dt));
+		rPositions[pNumb][1].inc(rVel[1].mul(dt));
+		// apply to all mesh vertexes
+		vVelocities[pNumb].forEach((vVel, i) => {
+			vVel.inc(acc.mul(dt));
+			vPositions[pNumb][i].inc(vVel.mul(dt));
+		});
 	});
 	
 	// Collision Detection and Response
-	p1Pos = rPositions[p1];
-	p1Vel = rVelocities[p1];  	
+
+	/*
+
+		let p0 = springs.p0;
+		let p0Pos = rPositions[p0]; //Vec3
+		let p0Vel = rVelocities[p0]; //Vec3
+		let p1 = springs.p1;
+		let p1Pos = rPositions[p1];
+		let p1Vel = rVelocities[p1];		
+		let lSpring = p1Pos.sub(p0Pos).len();		
+
+		// tension force => mg*cosTheta
+		// Centripetal force => m*v^2/r
+		let tensionDir = p1Pos.sub(p0Pos).div(lSpring);
+		let cosTheta = tensionDir.dot(new Vec3(0, 1, 0));			
+		let v = p1Vel.len();// velocita' tangenziale
+		let tension = particleMass * gravity.y * cosTheta;
+		let centripetal = particleMass * v * v / lSpring;	
+		let tensionForceP0 = tensionDir.mul(tension + centripetal);
+		let tensionForceP1 = tensionForceP0.mul(-1);
+		forces[p1] = forces[p1].add(tensionForceP1);	
+
+
+  		// Compute Acceleration for ONLY ONE PARTICLE...
+		var acc = forces[p1].div(particleMass);    	
+  		// Semi-Implicit Euler Integration
+		rVelocities[p1].inc(acc.mul(dt));	
+		rPositions[p1].inc(rVelocities[p1].mul(dt));
+		vVelocities.forEach((vel,i) => {
+			vel.inc(acc.mul(dt));			
+			vPositions[i].inc(vel.mul(dt));
+		});
+	*/
+
+	let xMax = 1.0 - box.max[0], xMin = -1.0 - box.min[0];	
+	let yMax = 1.0 - box.max[1], yMin = -1.0 - box.min[1];
+	let zMax = 1.0 - box.max[2], zMin = -1.0 - box.min[2];			
+	rPositions.forEach((rPos, pNumb) => {
+		let pos = rPos[1]; //center of mass		
+		// Wall Detection center of mass
+		// cealing has no collision
+		if(pos.x > xMax){
+			let h = pos.x - xMax;
+			rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);			
+			pos.x -= h*restitution;			
+			vPositions[pNumb].forEach((vPos, i) => {									  				
+				vVelocities[pNumb][i] = vVelocities[pNumb][i].mul(-restitution);
+				vPos.x -= h*restitution;			
+			});
+		}
+		if(pos.x < xMin){
+			let h = xMin - pos.x;			
+			rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+			pos.x += h*restitution;
+			vPositions[pNumb].forEach((vPos, i) => {							
+				vVelocities[pNumb][i] = vVelocities[pNumb][i].mul(-restitution);
+				vPos.x += h*restitution;
+			});
+		}
+		if(pos.y > yMax){			
+			let h = pos.y - yMax;			
+			rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+			pos.y -= h*restitution;
+			vPositions[pNumb].forEach((vPos, i) => {							
+				vVelocities[pNumb][i] = vVelocities[pNumb][i].mul(-restitution);
+				vPos.y -= h*restitution;
+			});
+		}
+		if(pos.y < yMin){
+			let h = yMin - pos.y;			
+			rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+			pos.y += h*restitution;
+			vPositions[pNumb].forEach((vPos, i) => {							
+				vVelocities[pNumb][i] = vVelocities[pNumb][i].mul(-restitution);
+				vPos.y += h*restitution;
+			});
+		}
+		if(pos.z > zMax){
+			let h = pos.z - zMax;			
+			rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+			pos.z -= h*restitution;
+			vPositions[pNumb].forEach((vPos, i) => {							
+				vVelocities[pNumb][i] = vVelocities[pNumb][i].mul(-restitution);
+				vPos.z -= h*restitution;
+			});
+		}
+		if(pos.z < zMin){
+			let h = zMin - pos.z;			
+			rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+			pos.z += h*restitution;
+			vPositions[pNumb].forEach((vPos, i) => {							
+				vVelocities[pNumb][i] = vVelocities[pNumb][i].mul(-restitution);
+				vPos.z += h*restitution;
+			});
+		}
+	});
+
+	// handle collisions with other Center of Mass
+	// when collision occurs ==> elastic collision 
+	let minDist = box.max[0] - box.min[0];	
+	rPositions.forEach((rPos, pNumb) => {		
+		rPositions.forEach((rPos2, pNumb2) => {
+			if(pNumb === pNumb2) return;
+			let pos = rPos[1]; 
+			let pos2 = rPos2[1]; 
+			let dist = pos.sub(pos2).len();
+			if(dist <= minDist){
+				// elastic collision
+				let normalDir = pos.sub(pos2).unit();
+				let isHorizontal = normalDir.y === 0;
+				console.log("isHorizontal",isHorizontal);				
+				let h = minDist - dist;
+				let v1 = rVelocities[pNumb][1].dot(normalDir);
+				let v2 = rVelocities[pNumb2][1].dot(normalDir);
+				// same mass
+				let u1 = v2, u2 = v1;
+				// update ropes Pos & velocities				
+				pos.inc(normalDir.mul(h));
+				pos2.inc(normalDir.mul(-h));
+				rVelocities[pNumb][1] = rVelocities[pNumb][1].sub(normalDir.mul(v1-u1));
+				rVelocities[pNumb2][1] = rVelocities[pNumb2][1].sub(normalDir.mul(v2-u2));
+				
+				// update mesh Pos & velocities
+				vPositions[pNumb].forEach((vPos, i) => {							
+					let v = vVelocities[pNumb][i].dot(normalDir);		
+					let u = v2;			
+					vVelocities[pNumb][i] = vVelocities[pNumb][i].sub(normalDir.mul(v - u));
+					vPos.inc(normalDir.mul(h));	
+				});
+				vPositions[pNumb2].forEach((vPos, i) => {								
+					let v = vVelocities[pNumb2][i].dot(normalDir);		
+					let u = v1;			
+					vVelocities[pNumb2][i] = vVelocities[pNumb2][i].sub(normalDir.mul(v - u));
+					vPos.inc(normalDir.mul(-h));
+				});
+			}
+		});
+	});
+	
+	
+    /* 
+	p1Pos = rPositions[p1];		
 	let xMax = 1.0 - box.max[0], xMin = -1.0 - box.min[0];	
 	let yMax = 1.0 - box.max[1], yMin = -1.0 - box.min[1];
 	let zMax = 1.0 - box.max[2], zMin = -1.0 - box.min[2];	
@@ -1733,7 +1913,7 @@ function PendolumStep(
 	}
 
   // TODO...handle collisions with other particles
-
+  */
 }
 
 
@@ -2227,7 +2407,8 @@ function MousePos()
 
 function ShowTexture( param )
 {
-	meshDrawer.showTexture( param.checked );
+	meshDrawers.forEach((drawer) => drawer.showTexture( param.checked ));
+	//meshDrawer.showTexture( param.checked );
 	DrawScene();
 }
 
@@ -2251,7 +2432,8 @@ function LoadTexture( param )
 		reader.onload = function(e) {
 			var img = document.getElementById('texture-img');
 			img.onload = function() {
-				meshDrawer.setTexture( img );
+				meshDrawers.forEach((drawer) => drawer.setTexture( img ));
+				//meshDrawer.setTexture( img );
 				DrawScene();
 			}
 			img.src = e.target.result;
@@ -2280,8 +2462,7 @@ function SetMass( param )
 	var v = param.value;
 	var s = v / 200;
 	document.getElementById('mass-value').innerText = s.toFixed( 3 );
-	pendolum.mass = s;
-	console.log("pendolum.mass",pendolum.mass);
+	pendolum.mass = s;	
 	//massSpring.mass = s;
 }
 
