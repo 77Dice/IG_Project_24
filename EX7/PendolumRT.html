@@ -305,7 +305,7 @@ class RopeDrawer {
           this.mvp = gl.getUniformLocation( this.prog, 'mvp' );
   
           // Get the ids of the vertex attributes in the shaders
-          this.vertPos = gl.getAttribLocation( this.prog, 'coordinates' );
+          this.coordPos = gl.getAttribLocation( this.prog, 'coordinates' );
           
           // Create the buffer objects
           this.vertexBuffer = gl.createBuffer();
@@ -326,12 +326,13 @@ class RopeDrawer {
 
     // draw rope
     draw( trans ) //trans --> mvp
-      {							
+      {	
+		if(this.vertPos.length == 0) return;						
               gl.useProgram( this.prog );
               gl.uniformMatrix4fv( this.mvp, false, trans );
               gl.bindBuffer( gl.ARRAY_BUFFER, this.vertexBuffer );
-              gl.vertexAttribPointer( this.vertPos, 3, gl.FLOAT, false, 0, 0 );
-              gl.enableVertexAttribArray( this.vertPos );
+              gl.vertexAttribPointer( this.coordPos, 3, gl.FLOAT, false, 0, 0 );
+              gl.enableVertexAttribArray( this.coordPos );
               gl.disable(gl.DEPTH_TEST);
               gl.drawArrays( gl.LINES, 0, 2 );
               gl.enable(gl.DEPTH_TEST);
@@ -903,12 +904,11 @@ function MatrixInverse( m )
 // Below is the core WebGL initialization code.
 ///////////////////////////////////////////////////////////////////////////////////
 
-// var someDrawer; // per i 2 punti + la Linea tra i 2? TODO!!
 var boxDrawer;
 var pointDrawer;
 var meshDrawers;
 var ropeDrawers;
-var nSpheres = 5; // TODO... Add controller for this
+var nSpheres = 5;
 var canvas, gl;
 // initial camera Positions
 var rotX=0, rotY=0, transY=0, transZ=3;
@@ -935,9 +935,7 @@ function InitWebGL()
 	pointDrawer = new PointDrawer();
 	meshDrawers = [];
 	ropeDrawers = [];
-	for (var i = 0; i < nSpheres; i++) {		
-		//meshDrawer  = new MeshDrawer();	
-		//ropeDrawer = new RopeDrawer();	
+	for (var i = 0; i < nSpheres; i++) {				
 		meshDrawers.push(new MeshDrawer());
 		ropeDrawers.push(new RopeDrawer());
 	}
@@ -1220,8 +1218,8 @@ class Pendolum
 		this.stiffness = 1; // rigidità			
 		this.restitution = .8; // restituzione
 		this.damping = 1; // smorzamento
-		this.freeRest = false; // lunghezza bloccata/Libera			
-		// new for the pendolum		
+		this.freeRest = false; // lunghezza bloccata/Libera					
+		this.simType = 1; // 1sim, 2sim, 3sim
 		this.meshes = new Array(nSpheres);
 		this.vPositions = new Array(nSpheres);
 		this.vVelocities = new Array(nSpheres);
@@ -1230,8 +1228,9 @@ class Pendolum
 		this.rPositions = new Array(nSpheres);
 		this.rVelocities = new Array(nSpheres);
 		this.pRestLength = new Array(nSpheres);
-		this.boundingBox = undefined;
-		this.setMesh( document.getElementById('box.obj').text );					
+		this.boundingBox = undefined; // bounding box of the mesh before the shift
+		this.loadedMesh = document.getElementById('box.obj').text; // loaded mesh when change sim type
+		this.setMesh( this.loadedMesh );					
 	}
 			
 	// ++ this.mesh = new ObjMesh;
@@ -1243,34 +1242,59 @@ class Pendolum
 	/// this.nfac = [];	// face surface normal indices
 	setMesh( objdef )
 	{
-		var postShift = new Array(nSpheres);	
-		// first ball 
-		// 0.8587487361136349	
-		// 0.10568020620692799
-		// 0.0
-		//postShift[0] = [0.4,0,0];
-		postShift[0] = [			
-			0.8561327732253686,
-			0.1101320176931324,
-			0.0
-		];		
-		let numbX = 0.8561327732253686 - 0.2;
-		//postShift[1] = [0.2,0,0];
-		postShift[1] = [
-			numbX,
-			0.1101320176931324,
-			0.0
-		];
-		let numbXX = numbX - 0.2;
-		//postShift[2] = [0,0,0];		
-		postShift[2] = [
-			numbXX,
-			0.1101320176931324,
-			0.0
-		];
-		postShift[3] = [-0.2,0,0];
-		postShift[4] = [-0.4,0,0];
-
+		var postShift = new Array(nSpheres);
+		if(this.simType == 1 )
+		{			
+			//postShift[0] = [0.4,0,0];
+			postShift[0] = [
+				0.8561327732253686,
+				0.1101320176931324,
+				0.0
+			];
+			postShift[1] = [0.2,0,0];
+			postShift[2] = [0,0,0];
+			postShift[3] = [-0.2,0,0];
+			postShift[4] = [-0.4,0,0];
+		}
+		else if(this.simType == 2)
+		{
+			postShift[0] = [
+				0.8561327732253686,
+				0.1101320176931324,
+				0.0
+			];
+			let numbX = 0.8561327732253686 - 0.2;
+			postShift[1] = [
+				numbX,
+				0.1101320176931324,
+				0.0
+			];
+			postShift[2] = [0,0,0];
+			postShift[3] = [-0.2,0,0];
+			postShift[4] = [-0.4,0,0];			
+		}
+		else if(this.simType == 3)
+		{
+			postShift[0] = [
+				0.8561327732253686,
+				0.1101320176931324,
+				0.0
+			];
+			let numbX = 0.8561327732253686 - 0.2;
+			postShift[1] = [
+				numbX,
+				0.1101320176931324,
+				0.0
+			];
+			let numbXX = numbX - 0.2;
+			postShift[2] = [
+				numbXX,
+				0.1101320176931324,
+				0.0
+			];
+			postShift[3] = [-0.2,0,0];
+			postShift[4] = [-0.4,0,0];
+		}	
 		for( var i=0; i<nSpheres; ++i ) {
 			this.meshes[i] = new ObjMesh;
 			this.meshes[i].parse( objdef );
@@ -1330,31 +1354,94 @@ class Pendolum
 	// ++ this.nrm = Array(this.mesh.norm.length);	
 	reset()
 	{		
-		//this.rPositions[0] = [new Vec3(0.4,1,0),new Vec3(0.4,0,0)];
-		this.rPositions[0] = [
-			new Vec3(0.4,1,0),
-			new Vec3(0.8561327732253686,
+		if(this.simType == 1)
+		{
+			this.rPositions[0] = 
+			[											
+				new Vec3(0.4,1,0),
+				new Vec3(
+					0.8561327732253686,
+					0.1101320176931324,
+					0.0
+				)
+			];					
+			this.rPositions[1] = 
+			[
+				new Vec3(0.2,1,0),
+				new Vec3(0.2,0,0)
+			];
+			this.rPositions[2] = [
+				new Vec3(0,1,0),
+				new Vec3(0,0,0)
+			];
+			this.rPositions[3] = [
+				new Vec3(-0.2,1,0),
+				new Vec3(-0.2,0,0)
+			];
+			this.rPositions[4] = [
+				new Vec3(-0.4,1,0),
+				new Vec3(-0.4,0,0)
+			];
+		}
+		else if(this.simType == 2)
+		{
+			this.rPositions[0] = [
+				new Vec3(0.4,1,0),
+				new Vec3(0.8561327732253686,
 					0.1101320176931324,
 					0.0)
-		];
-		let numbX = 0.8561327732253686 - 0.2;
-		//this.rPositions[1] = [new Vec3(0.2,1,0),new Vec3(0.2,0,0)];
-		this.rPositions[1] = [
-			new Vec3(0.2,1,0),
-			new Vec3(numbX,
+			];
+			let numbX = 0.8561327732253686 - 0.2;
+			this.rPositions[1] = [
+				new Vec3(0.2,1,0),
+				new Vec3(numbX,
 					0.1101320176931324,
 					0.0)			
-				];		
-		//this.rPositions[2] = [new Vec3(0,1,0),new Vec3(0,0,0)];		
-		let numbXX = numbX - 0.2;
-		this.rPositions[2] = [
-			new Vec3(0,1,0),
-			new Vec3(numbXX,
+			];
+			this.rPositions[2] = [
+				new Vec3(0,1,0),
+				new Vec3(0,0,0)
+			];
+			this.rPositions[3] = [
+				new Vec3(-0.2,1,0),
+				new Vec3(-0.2,0,0)
+			];
+			this.rPositions[4] = [
+				new Vec3(-0.4,1,0),
+				new Vec3(-0.4,0,0)
+			];
+		}
+		else
+		{
+			this.rPositions[0] = [
+				new Vec3(0.4,1,0),
+				new Vec3(0.8561327732253686,
 					0.1101320176931324,
 					0.0)
-		];
-		this.rPositions[3] = [new Vec3(-0.2,1,0),new Vec3(-0.2,0,0)];
-		this.rPositions[4] = [new Vec3(-0.4,1,0),new Vec3(-0.4,0,0)];	
+			];
+			let numbX = 0.8561327732253686 - 0.2;
+			this.rPositions[1] = [
+				new Vec3(0.2,1,0),
+				new Vec3(numbX,
+					0.1101320176931324,
+					0.0)			
+			];
+			let numbXX = numbX - 0.2;
+			this.rPositions[2] = [
+				new Vec3(0,1,0),
+				new Vec3(numbXX,
+					0.1101320176931324,
+					0.0)
+			];
+			this.rPositions[3] = [
+				new Vec3(-0.2,1,0),
+				new Vec3(-0.2,0,0)
+			];
+			this.rPositions[4] = [
+				new Vec3(-0.4,1,0),
+				new Vec3(-0.4,0,0)
+			];
+		}
 		for( var i=0; i<nSpheres; ++i ) {
 			this.vPositions[i] = Array(this.meshes[i].vpos.length);
 			for ( var j=0; j<this.vPositions[i].length; ++j ) 
@@ -1397,11 +1484,9 @@ class Pendolum
 	}
 
 	//initialize the pendolum length
-	initPendolumRest() {  
-		for( var i=0; i<nSpheres; ++i ) {
-			//var r = this.rPositions[i][0].sub(this.rPositions[i][1]).len();		                		
-			this.pRestLength[i] = 1.0;     
-		}
+	initPendolumRest() {  					
+		this.pRestLength.fill(1.0);
+		//var r = this.rPositions[i][0].sub(this.rPositions[i][1]).len();		
 	}
 
 
@@ -1426,6 +1511,14 @@ class Pendolum
 			this.startSimulation();
 			btn.value = "Stop Simulation";
 		}
+	}
+	
+	setSimulation(param){		
+		this.simType = param.value;		
+		this.setMesh( this.loadedMesh );
+		this.reset();
+		this.initPendolumRest();
+		DrawScene();
 	}
 	
 	
@@ -1674,15 +1767,12 @@ class Pendolum
 				for( var i=0; i<ms.vPositions[pendolumNum].length; ++i ) 
 					ms.vPositions[pendolumNum][i].inc(d);
 											
-			// only if BOOL applied...			
-			if(ms.freeRest){
-				//update selected pendolum rope/Rest Length			
+			// update the pendolum rope/Rest Length		
+			if(ms.freeRest){				
 				ms.pRestLength[pendolumNum] = 
 					ms.rPositions[pendolumNum][0]
 					.sub(ms.rPositions[pendolumNum][1]).len();							
-			}else{
-				//update selected pendolum rope/Rest Length to initial value
-				// so every time i move them they come back to the initial length			
+			}else{								
 				ms.pRestLength[pendolumNum] = 1.0;	
 			}
 			// call for update
@@ -1752,7 +1842,7 @@ function PendolumStep(
 		let springForceP0 = pendolDir.mul(stiffness * (curLength - restLength));
 		let springForceP1 = springForceP0.mul(-1);
 		// damping force => -damping*v		
-		let lDamp = rVelocities[pNumb][1].dot(pendolDir); // ? .len()??
+		let lDamp = rVelocities[pNumb][1].dot(pendolDir);
 		let dampingForceP0 = pendolDir.mul(damping * lDamp);
 		let dampingForceP1 = dampingForceP0.mul(-1);
 		
@@ -1890,9 +1980,8 @@ function PendolumStep(
 			let dist = pos.sub(pos2).len();
 			if(dist <= minDist){
 				// elastic collision
-				let normalDir = pos.sub(pos2).unit();
-				// TODO... LESS problems.... (solo se non sistemo..)
-				normalDir = new Vec3(normalDir.x,0,0);
+				let normalDir = pos.sub(pos2).unit();				
+				//normalDir = new Vec3(normalDir.x,0,0);
 				let isHorizontal = normalDir.y === 0;
 				//console.log("isHorizontal",isHorizontal);				
 				let h = minDist - dist;
@@ -1922,10 +2011,11 @@ function PendolumStep(
 			}
 		});
 	});
-
+	
+	//console.log(len,"len");
 	//console.log(rPositions[0][1]);
 	//console.log(rVelocities[1][1]);
-	console.log(rVelocities[2][1]);
+	//console.log(rVelocities[2][1]);		
 }
 
 
@@ -2392,8 +2482,7 @@ window.onload = function() {
 		DrawScene();
 	}
 	
-	//massSpring = new MassSpring();	
-	// TODO.... posso mod i nSpheres??
+	//massSpring = new MassSpring();		
 	nSpheres = 5;
 	pendolum = new Pendolum();
 	
@@ -2403,7 +2492,7 @@ window.onload = function() {
 	SetShininess( document.getElementById('shininess-exp') );
 	SetDamping  ( document.getElementById('damping') );
 	SetStiffness( document.getElementById('stiffness') );
-	SetFreeRest ( document.getElementById('free-rest') );
+	SetFreeRest ( document.getElementById('free-rest') );	
 
 	DrawScene();
 };
@@ -2429,21 +2518,20 @@ function ShowTexture( param )
 	DrawScene();
 }
 
-
-
 function LoadObj( param )
 {
 	if ( param.files && param.files[0] ) {
 		var reader = new FileReader();
-		reader.onload = function(e) {
+		reader.onload = function(e) {			
+			// save for sim changes, then load it
+			pendolum.loadedMesh = e.target.result;
+			pendolum.setMesh( e.target.result );				
 			//massSpring.setMesh( e.target.result );
-			pendolum.setMesh( e.target.result );			
 		}
 		reader.readAsText( param.files[0] );
 	}
 }
 
-// TODO .. linked to meshDrawer
 function LoadTexture( param )
 {
 	if ( param.files && param.files[0] ) {
@@ -2683,6 +2771,13 @@ input[type=button] {
 <div id="controls">
 <div class="control-group"><canvas id="lightcontrol"></canvas><div id="lightcontrol-label">Light Direction</div></div>
 <div class="control-group">
+<label for="sim-select" style="font-size: 15px;" >Select Simulation:</label>
+<select id="sim-select" onchange="pendolum.setSimulation(this)" style="float: right;">
+	<option value="1">1 Ball</option>
+	<option value="2">2 Balls</option>
+	<option value="3">3 Balls</option>	
+</select>
+</div>
 <div class="control"><input type="button" value="Start Simulation" onclick="pendolum.toggleSimulation(this)"></div>
 <div class="control"><input type="button" value="Reset" onclick="pendolum.reset();pendolum.initPendolumRest();DrawScene()"></div>
 <div class="control"><span id="timestep-label">Time Step Size:</span><span class="value" id="timestep-value">20 ms</span><input id="timestep" type="range" min="1" max="100" value="20" oninput="SetTimeStepSize(this)" onchange="pendolum.restartSimulation()" ondblclick="this.value=20;this.oninput();this.onchange()"/></div>
@@ -2692,7 +2787,7 @@ input[type=button] {
 
 </div>
 <div class="control-group">			
-	<div class="control">
+	<div class="control"> 
 		<input id="free-rest" name="free-rest" type="checkbox" onchange="SetFreeRest(this)" />
 		<label for="free-rest">mod Rope Length</label>				
 		<br/>
