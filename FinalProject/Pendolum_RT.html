@@ -1,0 +1,2146 @@
+<doctype html>
+<!-- Copyright 2020, Cem Yuksel, University of Utah -->
+<html>
+<head>
+<title>Pendolum-RayTracing</title>
+
+<script id="COMANDO_F4" type="text/javascript">
+document.addEventListener("keydown", keyDownTextField, false);
+function keyDownTextField(e) {
+	var keyCode = e.keyCode;
+	if(keyCode==115) {	// F4
+		document.getElementById('includedscript').remove();
+		var head = document.getElementsByTagName('head')[0];
+		var script = document.createElement('script');
+		script.src= 'project6.js';
+		script.id = 'includedscript';
+		script.onload = function() {
+			primaryRT.init();
+			secondaryRT.init();
+			DrawScene();
+		}
+		head.appendChild(script);
+		console.log('New script loaded.');
+	}
+}
+</script>
+
+<script id="sphereVS" type="x-shader/x-vertex">
+attribute vec3 p;
+uniform mat4  mvp;
+uniform vec3  center;
+uniform float radius;
+varying vec3 pos;
+varying vec3 normal;
+void main()
+{
+	pos = p*radius + center;
+    gl_Position = mvp * vec4(pos,1);
+	normal = p;
+}
+</script>
+
+<script id="sphereFS" type="x-shader/x-fragment">
+precision mediump float;
+struct Material {
+	vec3  k_d;	// diffuse coefficient
+	vec3  k_s;	// specular coefficient
+	float n;	// specular exponent
+};
+struct Light {
+	vec3 position;
+	vec3 intensity;
+};
+uniform samplerCube envMap;
+uniform Light    light;
+uniform vec3     campos;
+uniform Material mtl;
+varying vec3     pos;
+varying vec3     normal;
+void main()
+{
+	vec3 nrm = normalize(normal);
+	vec3 view = normalize( campos - pos );
+	vec3 color = vec3(0,0,0);
+	vec3 L = normalize( light.position - pos );
+	float c = dot( nrm, L );
+	if ( c > 0.0 ) {
+		// Blinn-Phong shading model
+		vec3 clr = c * mtl.k_d;
+		vec3 h = normalize( L + view );
+		float s = dot( nrm, h );
+		if ( s > 0.0 ) {
+			// Specular reflection
+			clr += mtl.k_s * pow( s, mtl.n );
+		}
+		// Diffuse reflection
+		color += clr * light.intensity;
+	}
+	if ( mtl.k_s.r + mtl.k_s.g + mtl.k_s.b > 0.0 ) {
+		// Reflection
+		vec3 dir = reflect( -view, nrm );
+		color += mtl.k_s * textureCube( envMap, dir.xzy ).rgb;
+	}
+	gl_FragColor = vec4(color,1);
+}
+</script>
+
+<script id="raytraceVS" type="x-shader/x-vertex">
+attribute vec3 p;
+uniform mat4 proj;
+uniform mat4 c2w;
+varying vec3 ray_pos;
+varying vec3 ray_dir;
+void main()
+{
+    gl_Position = proj * vec4(p,1);
+	vec4 rp = c2w * vec4(0,0,0,1);
+	ray_pos = rp.xyz;
+	vec4 rd = c2w * vec4(p,1);
+	ray_dir = rd.xyz - ray_pos;
+}
+</script>
+
+<script id="envFS" type="x-shader/x-fragment">
+precision mediump float;
+varying vec3 ray_dir;
+uniform samplerCube envMap;
+void main()
+{
+	gl_FragColor = textureCube( envMap, ray_dir.xzy );
+}
+</script>
+
+<script id="viewMatricesFX" type="text/javascript">	
+
+function UpdateProjectionMatrix()
+{
+	const fov = 60;
+	var r = canvas.width / canvas.height;
+	var n = 0.1;
+	const min_n = 0.001;
+	if ( n < min_n ) n = min_n;
+	var f = transZmax*100;
+	var ff = Math.PI * fov / 180;
+	var tant_2 = Math.tan( ff/2 );
+	var s = 1 / tant_2;
+	perspectiveMatrix = [
+		s/r, 0, 0, 0,
+		0, s, 0, 0,
+		0, 0, -(n+f)/(f-n), -1,
+		0, 0, -2*n*f/(f-n), 0
+	];
+	
+	screenQuad.init(fov,(n+f)/2);
+	background.updateProj();
+	primaryRT.updateProj();
+	secondaryRT.updateProj();
+}
+
+function GetTrans()
+{	
+	function dot(a,b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+
+	var cz = Math.cos( viewRotZ );
+	var sz = Math.sin( viewRotZ );
+	var cx = Math.cos( viewRotX );
+	var sx = Math.sin( viewRotX );
+
+	var z = [ cx*sz, -cx*cz, sx ];
+	var c = [ z[0]*transZ, z[1]*transZ, z[2]*transZ ];	
+	var xlen = Math.sqrt( z[0]*z[0] + z[1]*z[1] );
+	var x = [ -z[1]/xlen, z[0]/xlen, 0 ];
+	var y = [ z[1]*x[2] - z[2]*x[1], z[2]*x[0] - z[0]*x[2], z[0]*x[1] - z[1]*x[0] ];
+	
+	var worldToCam = [
+		x[0], y[0], z[0], 0,
+		x[1], y[1], z[1], 0,
+		x[2], y[2], z[2], 0,
+		-dot(x,c), -dot(y,c), -dot(z,c), 1,
+	];
+	var camToWorld = [
+		x[0], x[1], x[2], 0,
+		y[0], y[1], y[2], 0,
+		z[0], z[1], z[2], 0,
+		c[0], c[1], c[2], 1
+	];
+	return { camToWorld:camToWorld, worldToCam:worldToCam };
+}
+
+function MatrixMult( A, B )
+// Multiplies two matrices and returns the result A*B.
+// The arguments A and B are arrays, representing column-major matrices
+{
+	var C = [];
+	for ( var i=0; i<4; ++i ) {
+		for ( var j=0; j<4; ++j ) {
+			var v = 0;
+			for ( var k=0; k<4; ++k ) {
+				v += A[j+4*k] * B[k+4*i];
+			}
+			C.push(v);
+		}
+	}
+	return C;
+}
+
+// Returns the inverse of the given 4x4 matrix
+function MatrixInverse( m )
+{
+	var r = Array(16);
+	
+	var v_11_14__10_15 = m[11] * m[14] - m[10] * m[15];
+	var v_10_15__11_14 = m[10] * m[15] - m[11] * m[14];
+	var v__7_14___6_15 = m[ 7] * m[14] - m[ 6] * m[15];
+	var v__6_11___7_10 = m[ 6] * m[11] - m[ 7] * m[10];
+
+	var v__9_15__11_13 = m[ 9] * m[15] - m[11] * m[13];
+	var v_11_13___9_15 = m[11] * m[13] - m[ 9] * m[15];
+	var v__5_15___7_13 = m[ 5] * m[15] - m[ 7] * m[13];
+	var v__7__9___5_11 = m[ 7] * m[ 9] - m[ 5] * m[11];
+	
+	var v_10_13___9_14 = m[10] * m[13] - m[ 9] * m[14];
+	var v__9_14__10_13 = m[ 9] * m[14] - m[10] * m[13];
+	var v__6_13___5_14 = m[ 6] * m[13] - m[ 5] * m[14];
+	var v__5_10___6__9 = m[ 5] * m[10] - m[ 6] * m[ 9];
+	
+	var v_11_12___8_15 = m[11] * m[12] - m[ 8] * m[15];
+	var v__8_15__11_12 = m[ 8] * m[15] - m[11] * m[12];
+	var v__7_12___4_15 = m[ 7] * m[12] - m[ 4] * m[15];
+	var v__4_11___7__8 = m[ 4] * m[11] - m[ 7] * m[ 8];
+	
+	var v__8_14__10_12 = m[ 8] * m[14] - m[10] * m[12];
+	var v_10_12___8_14 = m[10] * m[12] - m[ 8] * m[14];
+	var v__4_14___6_12 = m[ 4] * m[14] - m[ 6] * m[12];
+	var v__6__8___4_10 = m[ 6] * m[ 8] - m[ 4] * m[10];
+	
+	var v__9_12___8_13 = m[ 9] * m[12] - m[ 8] * m[13];
+	var v__8_13___9_12 = m[ 8] * m[13] - m[ 9] * m[12];
+	var v__5_12___4_13 = m[ 5] * m[12] - m[ 4] * m[13];
+	var v__4__9___5__8 = m[ 4] * m[ 9] - m[ 5] * m[ 8];
+
+	r[ 0] = m[5] * (-v_11_14__10_15) + m[6] * (-v__9_15__11_13) + m[7] * (-v_10_13___9_14);
+	r[ 1] = m[1] * (-v_10_15__11_14) + m[2] * (-v_11_13___9_15) + m[3] * (-v__9_14__10_13);
+	r[ 2] = m[1] * (-v__7_14___6_15) + m[2] * (-v__5_15___7_13) + m[3] * (-v__6_13___5_14);
+	r[ 3] = m[1] * (-v__6_11___7_10) + m[2] * (-v__7__9___5_11) + m[3] * (-v__5_10___6__9);
+	
+	r[ 4] = m[4] * ( v_11_14__10_15) + m[6] * (-v_11_12___8_15) + m[7] * (-v__8_14__10_12);
+	r[ 5] = m[0] * ( v_10_15__11_14) + m[2] * (-v__8_15__11_12) + m[3] * (-v_10_12___8_14);
+	r[ 6] = m[0] * ( v__7_14___6_15) + m[2] * (-v__7_12___4_15) + m[3] * (-v__4_14___6_12);
+	r[ 7] = m[0] * ( v__6_11___7_10) + m[2] * (-v__4_11___7__8) + m[3] * (-v__6__8___4_10);
+	
+	r[ 8] = m[4] * ( v__9_15__11_13) + m[5] * ( v_11_12___8_15) + m[7] * (-v__9_12___8_13);
+	r[ 9] = m[0] * ( v_11_13___9_15) + m[1] * ( v__8_15__11_12) + m[3] * (-v__8_13___9_12);
+	r[10] = m[0] * ( v__5_15___7_13) + m[1] * ( v__7_12___4_15) + m[3] * (-v__5_12___4_13);
+	r[11] = m[0] * ( v__7__9___5_11) + m[1] * ( v__4_11___7__8) + m[3] * (-v__4__9___5__8);
+
+	r[12] = m[4] * ( v_10_13___9_14) + m[5] * ( v__8_14__10_12) + m[6] * ( v__9_12___8_13);
+	r[13] = m[0] * ( v__9_14__10_13) + m[1] * ( v_10_12___8_14) + m[2] * ( v__8_13___9_12);
+	r[14] = m[0] * ( v__6_13___5_14) + m[1] * ( v__4_14___6_12) + m[2] * ( v__5_12___4_13);
+	r[15] = m[0] * ( v__5_10___6__9) + m[1] * ( v__6__8___4_10) + m[2] * ( v__4__9___5__8);
+
+	var det = m[0]*r[0] + m[1]*r[4] + m[2]*r[8] + m[3]*r[12];
+	for ( var i=0; i<16; ++i ) r[i] /= det;
+	
+	return r;
+}
+
+</script>
+
+<script id="WhiteBox__Drawer" type="text/javascript">
+///////////////////////////////////////////////////////////////////////////////////
+// Draw the white BOX
+///////////////////////////////////////////////////////////////////////////////////
+class BoxDrawer {
+		constructor()
+		{
+			// Compile the shader program
+			this.prog = InitShaderProgram( boxVS, boxFS );
+			
+			// Get the ids of the uniform variables in the shaders
+			this.mvp = gl.getUniformLocation( this.prog, 'mvp' );
+			
+			// Get the ids of the vertex attributes in the shaders
+			this.vertPos = gl.getAttribLocation( this.prog, 'pos' );
+			
+			// Create the buffer objects
+			
+			this.vertbuffer = gl.createBuffer();
+			var pos = [
+				-1, -1, -1,
+				-1, -1,  1,
+				-1,  1, -1,
+				-1,  1,  1,
+				 1, -1, -1,
+				 1, -1,  1,
+				 1,  1, -1,
+				 1,  1,  1 ];
+			gl.bindBuffer(gl.ARRAY_BUFFER, this.vertbuffer);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.STATIC_DRAW);
+	
+			this.linebuffer = gl.createBuffer();
+			var line = [
+				0,1,   1,3,   3,2,   2,0,
+				4,5,   5,7,   7,6,   6,4,
+				0,4,   1,5,   3,7,   2,6 ];
+			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.linebuffer);
+			gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint8Array(line), gl.STATIC_DRAW);
+		}
+		draw( trans )
+		{
+			// Draw the line segments
+			gl.useProgram( this.prog );
+			gl.uniformMatrix4fv( this.mvp, false, trans );
+			gl.bindBuffer( gl.ARRAY_BUFFER, this.vertbuffer );
+			gl.vertexAttribPointer( this.vertPos, 3, gl.FLOAT, false, 0, 0 );
+			gl.enableVertexAttribArray( this.vertPos );
+			gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.linebuffer );
+			gl.drawElements( gl.LINES, 24, gl.UNSIGNED_BYTE, 0 );
+		}
+	}
+// Vertex shader source code
+var boxVS = `
+		attribute vec3 pos;
+		uniform mat4 mvp;
+		void main()
+		{
+			gl_Position = mvp * vec4(pos,1);
+		}
+	`;
+// Fragment shader source code
+var boxFS = `
+		precision mediump float;
+		void main()
+		{
+			gl_FragColor = vec4(1,1,1,1);
+		}
+	`;
+///////////////////////////////////////////////////////////////////////////////////
+</script>
+	
+<script id="PointDrawer_MouseOver" type="text/javascript">
+	///////////////////////////////////////////////////////////////////////////////////
+	// Draw MouseOver Vertex in RED
+	///////////////////////////////////////////////////////////////////////////////////
+	class PointDrawer {
+		constructor()
+		{
+			// Compile the shader program
+			this.prog = InitShaderProgram( pointVS, pointFS );
+			
+			// Get the ids of the uniform variables in the shaders
+			this.mvp = gl.getUniformLocation( this.prog, 'mvp' );
+	
+			// Get the ids of the vertex attributes in the shaders
+			this.vertPos = gl.getAttribLocation( this.prog, 'pos' );
+			
+			// Create the buffer objects
+			this.vertbuffer = gl.createBuffer();
+		}
+		setPoint(p)
+		{
+			if ( this.selVertex == p ) return false;
+			this.selVertex = p;
+			this.updatePoint();
+			return true;
+		}
+		updatePoint()
+		{
+			if ( this.selVertex !== undefined ) {
+				var pos = [ this.selVertex.x, this.selVertex.y, this.selVertex.z ];
+				gl.bindBuffer(gl.ARRAY_BUFFER, this.vertbuffer);
+				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.STATIC_DRAW);
+			}
+		}
+		draw( trans )
+		{
+			if ( this.selVertex ) {
+				gl.useProgram( this.prog );
+				gl.uniformMatrix4fv( this.mvp, false, trans );
+				gl.bindBuffer( gl.ARRAY_BUFFER, this.vertbuffer );
+				gl.vertexAttribPointer( this.vertPos, 3, gl.FLOAT, false, 0, 0 );
+				gl.enableVertexAttribArray( this.vertPos );
+				gl.disable(gl.DEPTH_TEST);
+				gl.drawArrays( gl.POINTS, 0, 1 );
+				gl.enable(gl.DEPTH_TEST);
+			}
+		}
+	}
+	// Vertex shader source code
+	var pointVS = `
+		attribute vec3 pos;
+		uniform mat4 mvp;
+		void main()
+		{
+			gl_Position = mvp * vec4(pos,1);
+			gl_PointSize = 10.0;
+		}
+	`;
+	// Fragment shader source code
+	var pointFS = `
+		precision mediump float;
+		void main()
+		{
+			gl_FragColor = vec4(0,1,0,1);
+		}
+	`;
+	///////////////////////////////////////////////////////////////////////////////////
+</script>
+
+<script id="Rope_Drawer" type="text/javascript">
+	///////////////////////////////////////////////////////////////////////////////////
+	// Rope Drawer, draws rope from cealing to the center of pendulum
+	///////////////////////////////////////////////////////////////////////////////////
+	
+	class RopeDrawer {
+		constructor()
+		  {
+			this.vertPos = [];           
+	
+			this.ropeVShader =
+					   `attribute vec3 coordinates;
+					   uniform mat4 mvp;
+						  void main() {   				               
+									  gl_Position = mvp * vec4(coordinates,1.0);
+								  }
+									  `;
+			  this.ropeFShader =
+					 `
+					 void main(void) {
+						 gl_FragColor = vec4(1,0,1,1);
+								 }  
+					 `;
+	
+					
+			  // Compile the shader program
+			  this.prog = InitShaderProgram( this.ropeVShader, this.ropeFShader );
+			  
+			  // Get the ids of the uniform variables in the shaders
+			  this.mvp = gl.getUniformLocation( this.prog, 'mvp' );
+	  
+			  // Get the ids of the vertex attributes in the shaders
+			  this.coordPos = gl.getAttribLocation( this.prog, 'coordinates' );
+			  
+			  // Create the buffer objects
+			  this.vertexBuffer = gl.createBuffer();
+			}
+					
+		setRope(pos){		
+			this.vertPos = [
+				pos[0].x, pos[0].y, pos[0].z,
+				pos[1].x, pos[1].y, pos[1].z];        
+	
+			gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
+			gl.bufferData(
+				gl.ARRAY_BUFFER, 
+				new Float32Array(this.vertPos), 
+				gl.STATIC_DRAW
+			);		
+		}
+	
+		// draw rope
+		draw( trans ) //trans --> mvp
+		  {	
+			if(this.vertPos.length == 0) return;						
+				  gl.useProgram( this.prog );
+				  gl.uniformMatrix4fv( this.mvp, false, trans );
+				  gl.bindBuffer( gl.ARRAY_BUFFER, this.vertexBuffer );
+				  gl.vertexAttribPointer( this.coordPos, 3, gl.FLOAT, false, 0, 0 );
+				  gl.enableVertexAttribArray( this.coordPos );
+				  gl.disable(gl.DEPTH_TEST);
+				  gl.drawArrays( gl.LINES, 0, 2 );
+				  gl.enable(gl.DEPTH_TEST);
+		  }
+	  }
+	
+</script>
+
+<script id="PendolumSimulationCode" type="text/javascript">
+	///////////////////////////////////////////////////////////////////////////////////
+	// Simulation of One Pendolum, with 1 center of Mass and one Cealing Point...
+	///////////////////////////////////////////////////////////////////////////////////	
+	class Pendolum
+	{
+		constructor()
+		{	// ASSE Y e Z sono invertiti!!!			
+			this.gravity = new Vec3( 0, 0, -2.0 );
+			this.mass = .1;								
+			this.stiffness = 1; // rigidità			
+			this.restitution = .8; // restituzione
+			this.damping = 1; // smorzamento
+			this.freeRest = false; // lunghezza bloccata/Libera					
+			this.simType = 1; // 1sim, 2sim, 3sim
+			this.rPositions = new Array(nSpheres);
+			this.rVelocities = new Array(nSpheres);
+			this.pRestLength = new Array(nSpheres);
+			this.boundingBox = {max : [0.1, 0.1, 0.1], min : [-0.1, -0.1, -0.1]}; 
+			this.Init();					
+		}
+						
+		Init()
+		{			
+			this.reset();
+			this.initPendolumRest();
+			DrawScene();		
+		}
+					
+		reset()
+		{
+			if(this.simType == 1)
+			{
+				this.rPositions[0] = 
+				[											
+					new Vec3(0.4,0,1),
+					new Vec3(
+						0.8561327732253686,
+						0.0,
+						0.1101320176931324,						
+					)
+				];					
+				this.rPositions[1] = 
+				[
+					new Vec3(0.2,0,1),
+					new Vec3(0.2,0,0)
+				];
+				this.rPositions[2] = [
+					new Vec3(0,0,1),
+					new Vec3(0,0,0)
+				];
+				this.rPositions[3] = [
+					new Vec3(-0.2,0,1),
+					new Vec3(-0.2,0,0)
+				];
+				this.rPositions[4] = [
+					new Vec3(-0.4,0,1),
+					new Vec3(-0.4,0,0)
+				];
+			}
+			else if(this.simType == 2)
+			{
+				this.rPositions[0] = [
+					new Vec3(0.4,0,1),
+					new Vec3(0.8561327732253686,
+					0.0,	
+					0.1101320176931324,)
+				];
+				let numbX = 0.8561327732253686 - 0.2;
+				this.rPositions[1] = [
+					new Vec3(0.2,0,1),
+					new Vec3(numbX,
+					0.0,	
+					0.1101320176931324,
+						)			
+				];
+				this.rPositions[2] = [
+					new Vec3(0,0,1),
+					new Vec3(0,0,0)
+				];
+				this.rPositions[3] = [
+					new Vec3(-0.2,0,1),
+					new Vec3(-0.2,0,0)
+				];
+				this.rPositions[4] = [
+					new Vec3(-0.4,0,1),
+					new Vec3(-0.4,0,0)
+				];
+			}
+			else
+			{
+				this.rPositions[0] = [
+					new Vec3(0.4,0,1),
+					new Vec3(0.8561327732253686,
+					0.0,	
+					0.1101320176931324,)
+				];
+				let numbX = 0.8561327732253686 - 0.2;
+				this.rPositions[1] = [
+					new Vec3(0.2,0,1),
+					new Vec3(numbX,
+					0.0,
+						0.1101320176931324,)			
+				];
+				let numbXX = numbX - 0.2;
+				this.rPositions[2] = [
+					new Vec3(0,0,1),
+					new Vec3(numbXX,
+					0.0,
+						0.1101320176931324,
+						)
+				];
+				this.rPositions[3] = [
+					new Vec3(-0.2,0,1),
+					new Vec3(-0.2,0,0)
+				];
+				this.rPositions[4] = [
+					new Vec3(-0.4,0,1),
+					new Vec3(-0.4,0,0)
+				];
+			}
+			for( var i=0; i<nSpheres; ++i ) {				
+				this.rVelocities[i] = [new Vec3(0,0,0),new Vec3(0,0,0)];				
+				ropeDrawers[i].setRope(this.rPositions[i]);				
+			}									
+		}
+	
+		//initialize the pendolum length
+		initPendolumRest() 
+		{  					
+			this.pRestLength.fill(1.0);				
+		}
+	
+	
+		startSimulation()
+		{		
+			if ( ! this.isSimulationRunning() ) 
+				this.timer = setInterval
+				( 
+					function(){ pendolum.step(); }, 
+					document.getElementById('timestep').value 
+				);
+		}
+		isSimulationRunning() { return this.timer !== undefined; }
+		stopSimulation(){clearInterval( this.timer );this.timer = undefined;}
+		restartSimulation() { if ( this.isSimulationRunning() ) { this.stopSimulation(); this.startSimulation(); } }
+		toggleSimulation( btn )
+		{
+			if (this.isSimulationRunning() ) {
+				this.stopSimulation();
+				btn.value = "Start Simulation";
+			} else {
+				this.startSimulation();
+				btn.value = "Stop Simulation";
+			}
+		}
+		
+		// when change the simulation type
+		setSimulation(param){		
+			this.simType = param.value;		
+			this.Init();
+			this.reset();
+			this.initPendolumRest();
+			this.updateSpheres();
+			DrawScene();
+		}
+		
+		
+		updateSpheres() {    
+			for( var i=0; i<nSpheres; ++i ) {
+			//	// Update the Rope
+				ropeDrawers[i].setRope(this.rPositions[i]);							
+			}
+			for (var i=1; i<(nSpheres+1); ++i){
+				let center = this.rPositions[i-1][1];
+				let newCenter = new Array(3);
+				newCenter[0] = center.x;
+				newCenter[1] = center.y;
+				newCenter[2] = center.z;
+				spheres[i].center = newCenter; // update the center of the sphere				
+			}
+			// update Point Drawer, RT and redraw scene
+			pointDrawer.updatePoint();
+			primaryRT.updateSim();
+			secondaryRT.updateSim();			
+			DrawScene();				
+		}
+	
+		copyholdVert() {
+			if(Array.isArray(this.holdVert)){
+				let holdVert = Array(this.holdVert.length);
+			for( var i=0; i<this.holdVert.length; ++i )
+				holdVert[i] = this.holdVert[i].copy();
+				return holdVert;
+			}else{
+				return this.holdVert.copy();
+			}		
+		}
+		setholdVert( holdVert ) {
+			if(Array.isArray(holdVert)){
+				this.holdVert = Array(holdVert.length);		
+				for( var i=0; i<holdVert.length; ++i )
+					this.holdVert[i] = holdVert[i].copy();
+			}else{
+				this.holdVert.set(holdVert);
+			}
+		}
+	
+		step()
+		{
+			// holdVert ==> List of CenterOFmass + all vertex of one mesh
+			// selRope ==> selected pendolum
+			// remember the position of the selected vertex, if any		 
+			var p = this.holdVert ? this.copyholdVert() : undefined;
+			// Update positions and velocities
+			var timestep = document.getElementById("timestep").value;
+			const dt = timestep / 1000; // time step in seconds	
+			const damping = this.damping * this.stiffness * dt;	 	 
+			PendolumStep(
+						  dt,
+						  this.rPositions,
+						  this.rVelocities,						  
+						  this.pRestLength,					  
+						  this.mass,
+						  this.gravity,
+						  this.restitution,
+						  damping,
+						  this.stiffness,						  
+						  this.boundingBox
+						);
+						
+			// make sure that the selected vertex does not change position			
+			if (p) {
+				// 8 vertici + 1 centro(array) || 1 cealing(Vec3)
+				//console.log("p: ", p); 	
+				// [numeroPendolo, cealing | center of mass]
+				//console.log(this.selRope, "this.selRope");
+				this.setholdVert(p);
+	
+				let pendolumNum = this.selRope[0];			
+				// stop movement of the selected pendolum						
+				this.rVelocities[pendolumNum][1].init(0, 0, 0);				
+			}
+			
+			//this.updateMesh();	
+			this.updateSpheres();		
+		}	
+			 
+		mouseMove()
+		{						
+			var m = MousePos();
+			this.selRope = undefined;
+			var selPt;
+			var minDist = 10;
+			for ( var i=0; i<this.rPositions.length; ++i ) {
+				for( var j=0; j<this.rPositions[i].length; ++j ) {					
+					var p = this.rPositions[i][j];
+					var pv = p.trans(MVP);
+					var px = pv.x / pv.w;
+					var py = pv.y / pv.w;
+					var dx = m.x - px;
+					var dy = m.y - py;
+					var len2 = dx*dx + dy*dy;
+					if ( len2 < 0.001 && len2 < minDist ) {
+						minDist = len2;
+						this.selRope = [i,j];
+						selPt = p;
+					}
+				}
+			}		
+			if ( pointDrawer.setPoint( selPt ) ) {
+				DrawScene();
+				canvas.className = selPt ? "sel" : "";
+			}					
+		}	
+		mouseDown()
+		{					
+			if ( this.selRope === undefined ) return false;
+			// [numeroPendolo, cealing | center of mass]
+			var mInv = MatrixInverse(MVP);	
+			var pendolumNum = this.selRope[0];			
+			var p = this.rPositions[pendolumNum][ this.selRope[1] ];				
+			var pv = p.trans(MVP);				
+	
+			// save for Later...
+			if(this.selRope[1] === 1){
+				this.holdVert = 
+				this.rPositions[ pendolumNum ][1].copy();				
+				}else{
+				this.holdVert = this.rPositions[ pendolumNum ][0].copy();
+			}
+													
+			function mouse4D()
+			{
+				var m = MousePos();
+				return {
+					x: m.x * pv.w,
+					y: m.y * pv.w,
+					z: pv.z,
+					w: pv.w
+				};
+			}
+			
+			function invTrans(v)
+			{
+				return {
+					x: mInv[0]*v.x + mInv[4]*v.y + mInv[ 8]*v.z + mInv[12]*v.w,
+					y: mInv[1]*v.x + mInv[5]*v.y + mInv[ 9]*v.z + mInv[13]*v.w,
+					z: mInv[2]*v.x + mInv[6]*v.y + mInv[10]*v.z + mInv[14]*v.w,
+					w: mInv[3]*v.x + mInv[7]*v.y + mInv[11]*v.z + mInv[15]*v.w
+				};
+			}
+			
+			function mouse3D() { 
+				var m = invTrans(mouse4D());
+				return new Vec3( m.x/m.w, m.y/m.w, m.z/m.w );
+			}
+			
+			var m0 = mouse3D();
+			var ms = this;
+			
+			// Here moves the selected verteces and Center of Masses
+			// Also Update length of the pendolum		
+			// velocity is already set to 0, in step() function			
+			canvas.onmousemove = function() {
+				var m1 = mouse3D(); // mouse position 3D
+				var d = m1.sub(m0); // mouse movement (before - after)
+				m0 = { ...m1 }; // assign m1 to m0
+				p.inc(d); // update selected pendolum 
+						  // Rope position (cealing or center of mass)			
+								
+				// update the pendolum rope/Rest Length		
+				if(ms.freeRest){				
+					ms.pRestLength[pendolumNum] = 
+						ms.rPositions[pendolumNum][0]
+						.sub(ms.rPositions[pendolumNum][1]).len();							
+				}else{								
+					ms.pRestLength[pendolumNum] = 1.0;	
+				}
+				// call for update sphere position
+				//ms.updateMesh();
+				ms.updateSpheres();
+			}
+			return true;		
+		}	
+		mouseUp()
+		{		
+			this.holdVert = undefined;
+		}
+		
+	}
+		
+	function PendolumStep(
+		dt,
+		rPositions,
+		rVelocities, 		  
+		pRestLength,
+		particleMass,
+		gravity,
+		restitution,
+		damping,
+		stiffness,
+		box)
+		{
+		//console.log(rPositions,"rPositions");
+		//console.log(rVelocities,"rVelocities");
+		//console.log(springs,"springs");
+		//console.log(stiffness,"stiffness");
+		//console.log(damping,"damping");
+		//console.log(particleMass,"particleMass");
+		//console.log(gravity,"gravity");
+		//console.log(restitution,"restitution");
+	
+		// just one for every center of mass 
+		// (not counting cealing points)
+		// Axis Y and Z are inverted!!
+		var forces = [...Array(rPositions.length)].map(
+		(_, i) => new Vec3(0, 0, gravity.y * particleMass));	
+		
+		forces.forEach((forceVector, pNumb) => {				
+			let p0Pos = rPositions[pNumb][0]; //Vec3		
+			let p1Pos = rPositions[pNumb][1];
+			let p1Vel = rVelocities[pNumb][1].len2();
+			// ogni singolo errore introdotto al Dt precedente 
+			// va ad accumularsi in ogni passo successivo...
+			// quindi bisogna considerare initLength...
+			// altrimenti la distorsione del pendolo aumenta
+			let curLength = p1Pos.sub(p0Pos).len();	
+			let restLength = pRestLength[pNumb];					
+			let pendolDir = p1Pos.sub(p0Pos).unit();
+			let orthoDir = pendolDir.cross(new Vec3(0, 0, 1)).unit();
+			let cosTheta = pendolDir.dot(new Vec3(0, 0, 1));		
+				
+							
+			// tension force => mg*cosTheta
+			let tension = particleMass * gravity.y * (cosTheta);
+			let tensionForceP0 = pendolDir.mul(tension);
+			let tensionForceP1 = tensionForceP0.mul(-1);
+			// Centripetal force => m*v^2/r
+			let centripetal = particleMass * p1Vel / restLength ;
+			let centripetalForceP0 = pendolDir.mul(centripetal);
+			let centripetalForceP1 = centripetalForceP0.mul(-1);
+			// spring force => stiffness*(l-l0)
+			let springForceP0 = pendolDir.mul(stiffness * (curLength - restLength));
+			let springForceP1 = springForceP0.mul(-1);
+			// damping force => -damping*v		
+			let lDamp = rVelocities[pNumb][1].dot(pendolDir);
+			let dampingForceP0 = pendolDir.mul(damping * lDamp);
+			let dampingForceP1 = dampingForceP0.mul(-1);
+			
+	
+			forces[pNumb] = forces[pNumb]
+			.add(tensionForceP1)
+			.add(centripetalForceP1)
+			.add(springForceP1)
+			.add(dampingForceP1);
+	
+		});
+		
+		// Update positions and velocities 
+		// of center of Mass & all vertex
+		rVelocities.forEach((rVel, pNumb) => {		
+			// Compute Acceleration for center of Mass...
+			let acc = forces[pNumb].div(particleMass);
+			// Semi-Implicit Euler Integration
+			rVel[1].inc(acc.mul(dt));
+			rPositions[pNumb][1].inc(rVel[1].mul(dt));			
+		});
+					
+		let xMax = 1.0 - box.max[0], xMin = -1.0 - box.min[0];	
+		let yMax = 1.0 - box.max[1], yMin = -1.0 - box.min[1];
+		let zMax = 1.0 - box.max[2], zMin = -1.0 - box.min[2];			
+		// Wall Detection center of mass
+		// cealing has no collision
+		rPositions.forEach((rPos, pNumb) => {
+			let pos = rPos[1]; //center of mass					
+			if(pos.x > xMax){
+				let h = pos.x - xMax;
+				rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);			
+				pos.x -= h*restitution;
+			}
+			if(pos.x < xMin){
+				let h = xMin - pos.x;			
+				rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+				pos.x += h*restitution;
+			}
+			if(pos.y > yMax){			
+				let h = pos.y - yMax;			
+				rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+				pos.y -= h*restitution;
+			}
+			if(pos.y < yMin){
+				let h = yMin - pos.y;			
+				rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+				pos.y += h*restitution;
+			}
+			if(pos.z > zMax){
+				let h = pos.z - zMax;			
+				rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+				pos.z -= h*restitution;
+			}
+			if(pos.z < zMin){
+				let h = zMin - pos.z;			
+				rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+				pos.z += h*restitution;
+			}
+		});
+	
+		// handle collisions with other Center of Mass
+		// when collision occurs ==> elastic collision 		
+		let minDist = box.max[0] - box.min[0];	
+		rPositions.forEach((rPos, pNumb) => {		
+			rPositions.forEach((rPos2, pNumb2) => {
+				if(pNumb === pNumb2) return;
+				let pos = rPos[1]; 
+				let pos2 = rPos2[1]; 
+				let dist = pos.sub(pos2).len();
+				if(dist <= minDist){
+					// elastic collision
+					let normalDir = pos.sub(pos2).unit();				
+					//normalDir = new Vec3(normalDir.x,0,0);
+					let isHorizontal = normalDir.y === 0;
+					//console.log("isHorizontal",isHorizontal);				
+					let h = minDist - dist;
+					let v1 = rVelocities[pNumb][1].dot(normalDir);
+					let v2 = rVelocities[pNumb2][1].dot(normalDir);
+					// same mass
+					let u1 = v2, u2 = v1;
+					// update ropes Pos & velocities				
+					pos.inc(normalDir.mul(h));								
+					pos2.inc(normalDir.mul(-h));				
+					rVelocities[pNumb][1] = rVelocities[pNumb][1].sub(normalDir.mul(v1-u1));
+					rVelocities[pNumb2][1] = rVelocities[pNumb2][1].sub(normalDir.mul(v2-u2));					
+				}
+			});
+			// + handle collisions with RANDOM Spheres in the scene	
+			// + when collision occurs ==> as Walls, restitution 
+			for( var i=nSpheres+1; i<(spheres.length); ++i){				
+				let sphere = spheres[i];
+				let center = new Vec3(sphere.center[0],sphere.center[1],sphere.center[2]);
+				let pos = rPos[1];
+				let dist = pos.sub(center).len();	
+				let minDist2 = sphere.radius + 0.1;	
+				if(dist <= minDist2){					
+					let normalDir = pos.sub(center).unit();				
+					let h = minDist2 - dist;
+					rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);												
+					pos.inc(normalDir.mul(h*restitution));																	
+				}			
+			}
+		});				
+	}		
+	</script>
+
+<script id="vec3" type="text/javascript">	
+	///////////////////////////////////////////////////////////////////////////////////
+	// Below is the Vec3 class definition
+	///////////////////////////////////////////////////////////////////////////////////
+	/*
+	init(x,y,z): sets the x, y, and z coordinates to the given values.
+	copy(): returns a copy of the vector object.
+	set(v): sets the x, y, and z coordinates to the same values as the given vector v.
+	inc(v): increments the x, y, and z coordinate values by adding the coordinate values of the given vector v.
+	dec(v): decrements the x, y, and z coordinate values by subtracting the coordinate values of the given vector v.
+	scale(f): multiplies the x, y, and z coordinates by the given scalar f.
+	add(v): add the given vector v to this vector and returns the resulting vector.
+	sub(v): subtracts the given vector v from this vector and returns the resulting vector.
+	dot(v): computes the dot product of this vector and the given vector v and returns the resulting scalar.
+	cross(v): computes the cross product of this vector and the given vector v and returns the resulting vector.
+	mul(f): multiplies the vector by the given scalar f and returns the result.
+	div(f): divides the vector by the given scalar f and returns the result.
+	len2(): returns the squared length of the vector.
+	len(): returns the length of the vector.
+	unit(): returns the unit vector along the direction of this vector.
+	toFix(n): returns a new vector with each coordinate rounded to n decimal places.
+	normalize(): normalizes this vector, turning it into a unit vector.
+	*/
+	class Vec3 {
+		constructor( x, y, z ) { this.init(x,y,z); }
+		init( x, y, z ) { this.x=x; this.y=y; this.z=z; }
+		copy ( ) { return new Vec3( this.x, this.y, this.z ); }
+		set  (v) { this.x =v.x; this.y =v.y; this.z =v.z; }
+		inc  (v) { this.x+=v.x; this.y+=v.y; this.z+=v.z; }
+		dec  (v) { this.x-=v.x; this.y-=v.y; this.z-=v.z; }
+		scale(f) { this.x*=f; this.y*=f; this.z*=f; }
+		add  (v) { return new Vec3( this.x+v.x, this.y+v.y, this.z+v.z ); }
+		sub  (v) { return new Vec3( this.x-v.x, this.y-v.y, this.z-v.z ); }
+		dot  (v) { return this.x*v.x + this.y*v.y + this.z*v.z; }
+		cross(v) { return new Vec3( this.y*v.z-this.z*v.y, this.z*v.x-this.x*v.z, this.x*v.y-this.y*v.x ); }
+		mul  (f) { return new Vec3( this.x*f, this.y*f, this.z*f ); }
+		div  (f) { return new Vec3( this.x/f, this.y/f, this.z/f ); }
+		len2 ( ) { return this.dot(this); }
+		len  ( ) { return Math.sqrt(this.len2()); }
+		unit ( ) { return this.div(this.len()); }
+		toFix( n ) { return new Vec3( this.x.toFixed(n), this.y.toFixed(n), this.z.toFixed(n) ); }
+		normalize() {
+			var l = this.len();
+			this.x /= l;
+			this.y /= l;
+			this.z /= l;
+		}
+		trans(m) {
+			return {
+				x: m[0]*this.x + m[4]*this.y + m[ 8]*this.z + m[12],
+				y: m[1]*this.x + m[5]*this.y + m[ 9]*this.z + m[13],
+				z: m[2]*this.x + m[6]*this.y + m[10]*this.z + m[14],
+				w: m[3]*this.x + m[7]*this.y + m[11]*this.z + m[15]
+			};
+		}
+	}
+	
+	function ToVec3(a) { return new Vec3(a[0],a[1],a[2]); }
+	
+</script>
+
+<script id="MAIN_init_GL" type="text/javascript">
+
+// This function generates a triangle-based sphere with the given number of subdivisions.
+// The function returns an object with two arrays: pos and elems.
+// The pos array contains the vertex positions, 
+// and the elems array contains the indices of the vertices that form the triangles.
+function TriSphere(subdiv)
+{
+	var faces = [];
+	var verts = [];
+	verts.push(0,0, 1);
+	verts.push(0,0,-1);
+	var vpt = 0;
+	var vpb = 1;
+	var vi = 2;
+	for ( var i=1; i<subdiv; ++i ) {
+		var a = Math.PI * i / (2*subdiv);
+		var z = Math.cos(a);
+		var r = Math.sin(a);
+		a = 0;
+		var da = Math.PI / (2*i);
+		var v0t = vpt;
+		var v0b = vpb;
+		var v1t = vi++;
+		var v1b = vi++;
+		verts.push(r,0, z);
+		verts.push(r,0,-z);
+		for ( var s=0; s<4; ++s ) {
+			for ( var j=1; j<i; ++j ) {
+				a += da;
+				var x = Math.cos(a)*r;
+				var y = Math.sin(a)*r;
+				verts.push( x, y,  z );
+				verts.push( x, y, -z );
+				faces.push( v0t, vi-2, vi );
+				faces.push( v0t, vi, v0t+2 );
+				faces.push( v0b, vi-1, vi+1 );
+				faces.push( v0b, vi+1, v0b+2 );
+				v0t+=2;
+				v0b+=2;
+				vi+=2;
+			}
+			if ( s < 3 ) {
+				a += da;
+				var x = Math.cos(a)*r;
+				var y = Math.sin(a)*r;
+				verts.push( x, y,  z );
+				verts.push( x, y, -z );
+				faces.push( v0t, vi-2, vi );
+				faces.push( v0b, vi-1, vi+1 );
+				vi+=2;
+			}
+		}
+		if ( i > 1 ) {
+			faces[ faces.length-7 ] = vpt;
+			faces[ faces.length-1 ] = vpb;
+		}
+		faces.push( vpt, vi-2, v1t );
+		faces.push( vpb, vi-1, v1b );
+		vpt = v1t;
+		vpb = v1b;
+	}
+	var a = 0;
+	var da = Math.PI / (2*subdiv);
+	verts.push(1,0,0);
+	var v0t = vpt;
+	var v0b = vpb;
+	var v1 = vi++;
+	for ( var s=0; s<4; ++s ) {
+		for ( var j=1; j<subdiv; ++j ) {
+			a += da;
+			var x = Math.cos(a);
+			var y = Math.sin(a);
+			verts.push( x, y, 0 );
+			faces.push( v0t, vi-1, vi );
+			faces.push( v0t, vi, v0t+2 );
+			faces.push( v0b, vi-1, vi );
+			faces.push( v0b, vi, v0b+2 );
+			v0t+=2;
+			v0b+=2;
+			vi++;
+		}
+		if ( s < 3 ) {
+			a += da;
+			var x = Math.cos(a);
+			var y = Math.sin(a);
+			verts.push( x, y, 0 );
+			faces.push( v0t, vi-1, vi );
+			faces.push( v0b, vi-1, vi );
+			vi++;
+		}
+	}
+	if ( subdiv > 1 ) {
+		faces[ faces.length-7 ] = vpt;
+		faces[ faces.length-1 ] = vpb;
+	}
+	faces.push( vpt, vi-1, v1 );
+	faces.push( vpb, vi-1, v1 );
+	return { pos:verts, elems:faces };
+}
+
+var triSphere = {
+	init()
+	{
+		var b = TriSphere(20);
+		this.pbuf = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.pbuf);
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(b.pos), gl.STATIC_DRAW);
+		this.ebuf = gl.createBuffer();
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ebuf);
+		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(b.elems), gl.STATIC_DRAW);
+		this.count = b.elems.length;
+	},
+	draw( vp )
+	{
+		gl.bindBuffer( gl.ARRAY_BUFFER, this.pbuf );
+		gl.vertexAttribPointer( vp, 3, gl.FLOAT, false, 0, 0 );
+		gl.enableVertexAttribArray( vp );
+		gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.ebuf );
+		gl.drawElements( gl.TRIANGLES, this.count, gl.UNSIGNED_SHORT, 0 );
+	}
+};
+
+class SphereProg
+{
+	init()
+	{
+		this.mvp     = gl.getUniformLocation( this.prog, 'mvp' );
+		this.campos  = gl.getUniformLocation( this.prog, 'campos' );
+		this.center  = gl.getUniformLocation( this.prog, 'center' );
+		this.radius  = gl.getUniformLocation( this.prog, 'radius' );
+		this.mtl_k_d = gl.getUniformLocation( this.prog, 'mtl.k_d' );
+		this.mtl_k_s = gl.getUniformLocation( this.prog, 'mtl.k_s' );
+		this.mtl_n   = gl.getUniformLocation( this.prog, 'mtl.n' );
+		this.vp      = gl.getAttribLocation ( this.prog, 'p' );
+	}
+	setTrans( mvp, campos )
+	{
+		gl.useProgram( this.prog );
+		gl.uniformMatrix4fv( this.mvp, false, mvp );
+		gl.uniform3fv( this.campos, campos );
+	}
+	setLight( pos, intens )
+	{
+		gl.useProgram( this.prog );
+		gl.uniform3fv( gl.getUniformLocation( this.prog, 'light.position'  ), pos    );
+		gl.uniform3fv( gl.getUniformLocation( this.prog, 'light.intensity' ), intens );
+	}
+	draw( sphere )
+	{
+		gl.useProgram( this.prog );
+		gl.uniform3fv( this.center,  sphere.center  );
+		gl.uniform1f ( this.radius,  sphere.radius  );
+		gl.uniform3fv( this.mtl_k_d, sphere.mtl.k_d );
+		gl.uniform3fv( this.mtl_k_s, sphere.mtl.k_s );
+		gl.uniform1f ( this.mtl_n,   sphere.mtl.n   );
+		triSphere.draw( this.vp );
+	}
+};
+
+class SphereDrawer extends SphereProg
+{
+	constructor()
+	{
+		super();
+		this.prog = InitShaderProgramFromScripts( 'sphereVS', 'sphereFS' );
+		this.init();
+	}
+};
+
+const transZmin = 1.001;
+const transZmax = 10;
+const maxBounceLimit = 16;
+var sphereDrawer;
+var canvas, gl;
+var perspectiveMatrix;	// perspective projection matrix
+var environmentTexture;
+var viewRotX=0, viewRotZ=0, transZ=3;
+var sphereCount = 10;
+var primaryRT, secondaryRT;
+// Simulation
+var showBox;
+var pointDrawer, ropeDrawers, boxDrawer;
+var pendolum,nSpheres = 5;
+var MVP;
+
+// le sfere che sono sempre presenti
+// la prima fa da Piano, l'altra è la sfera rossa
+// Asse Y e Z SONO SCAMBIATI!!!
+// solo Asse X è corretto
+var fixed_spheres = [
+	{
+		center: [ 0, 0, -10001.0 ],
+		radius: 10000.0,
+		mtl: {
+			k_d: [ 0.1, 0.1, 0.2 ], // diffuse coefficient
+			k_s: [ 0.2, 0.2, 0.2 ], // specular coefficient
+			n: 10 // specular exponent
+		}
+	},
+	{ 
+		center: [
+			0.8561327732253686,
+			0.0, // Z swapped with Y
+			0.110132017693132
+		],
+		radius: 0.1,
+		mtl: {
+			k_d: [0.0, 0.5, 0.0 ], // green
+			k_s: [ 0.8, 0.8, 0.8 ],
+			n: 100
+		}
+	},
+	{
+		center: [ 0.2,0,0],
+		radius: 0.1,
+		mtl: {
+			k_d: [ 1.0, 1.0, 0.0 ], // yellow
+			k_s: [ 0.8, 0.8, 0.8 ],
+			n: 100
+		}
+	},
+	{
+		center: [ 0, 0, 0 ],
+		radius: 0.1,
+		mtl: {
+			k_d: [ 0.5, 0.0, 0.0 ], // red
+			k_s: [ 0.8, 0.8, 0.8 ],
+			n: 100
+		}
+	},
+	{
+		center: [ -0.2,0,0 ],
+		radius: 0.1,
+		mtl: {
+			k_d: [ 0.0, 0.0, 1.0 ], // blue
+			k_s: [ 0.8, 0.8, 0.8 ],
+			n: 100
+		}
+	},
+	{
+		center: [ -0.4,0,0 ],
+		radius: 0.1,
+		mtl: {
+			k_d: [ 0.5, 0.0, 0.5 ], // purple
+			k_s: [ 0.8, 0.8, 0.8 ],
+			n: 100
+		}
+	},
+];
+
+var spheres = fixed_spheres.slice();
+
+var lights = [
+	{
+		position:  [ 0, 0, 1000 ],
+		intensity: [ 1, 1, 1 ]
+	}
+];
+
+const raytraceFS_header = `
+	precision highp float;
+	precision highp int;
+`;
+
+const raytraceFS_primary = `
+	varying vec3 ray_pos;
+	varying vec3 ray_dir;
+
+	void main()
+	{
+		Ray primary_ray;
+		primary_ray.pos = ray_pos;
+		primary_ray.dir = ray_dir;
+		gl_FragColor = RayTracer( primary_ray );
+	}
+`;
+
+const raytraceFS_secondary = `
+	uniform Material mtl;
+	uniform vec3     campos;
+	varying vec3     pos;
+	varying vec3     normal;
+	void main()
+	{
+		vec3 nrm = normalize( normal );
+		vec3 view = normalize( campos - pos );
+		vec3 color = Shade( mtl, pos, nrm, view );
+		if ( mtl.k_s.r > 0.0 || mtl.k_s.g > 0.0 || mtl.k_s.b > 0.0 ) 
+		{
+			Ray ray;
+			ray.pos = pos;
+			ray.dir = reflect( -view, nrm );
+			vec4 reflection = RayTracer( ray );
+			color += mtl.k_s * reflection.rgb;
+		}
+		gl_FragColor = vec4( color, 1 );
+	}
+`;
+
+const raytraceFS = `
+
+struct Ray {
+	vec3 pos;
+	vec3 dir;
+};
+
+struct Material {
+	vec3  k_d;	// diffuse coefficient
+	vec3  k_s;	// specular coefficient
+	float n;	// specular exponent
+};
+
+struct Sphere {
+	vec3     center;
+	float    radius;
+	Material mtl;
+};
+
+struct Light {
+	vec3 position;
+	vec3 intensity;
+};
+
+struct HitInfo {
+	float    t;
+	vec3     position;
+	vec3     normal;
+	Material mtl;
+};
+
+uniform Sphere spheres[ NUM_SPHERES ];
+uniform Light  lights [ NUM_LIGHTS  ];
+uniform samplerCube envMap;
+uniform int bounceLimit;
+
+bool IntersectRay( inout HitInfo hit, Ray ray );
+
+// Shades the given point and returns the computed color.
+vec3 Shade( Material mtl, vec3 position, vec3 normal, vec3 view )
+{
+	vec3 color = vec3(0,0,0);
+	for ( int i=0; i<NUM_LIGHTS; ++i ) {		
+		// Check for shadows
+		Ray shadowRay;
+		shadowRay.pos = position + 0.001 * normal; // + bias
+		shadowRay.dir = lights[i].position - position;					
+		HitInfo shadowHit;
+		if (IntersectRay(shadowHit, shadowRay)) continue;	
+		// If not shadowed, perform shading using the Blinn model
+		vec3 LightDir = normalize( lights[i].position - position );
+		vec3 HalfDir = normalize( LightDir + view );
+		float phiCos = max( dot( HalfDir, normal ), 0.0 );
+		float thetaCos = max( dot( normal, LightDir ), 0.0 );
+		vec3 diffuse = mtl.k_d * thetaCos;
+		vec3 specular = mtl.k_s * pow( phiCos, mtl.n );
+		color += (diffuse + specular)*lights[i].intensity;				
+	}
+	return color;
+}
+
+// Intersects the given ray with all spheres in the scene
+// and updates the given HitInfo using the information of the sphere
+// that first intersects with the ray.
+// Returns true if an intersection is found.
+bool IntersectRay( inout HitInfo hit, Ray ray )
+{
+	hit.t = 1e30;
+	bool foundHit = false;
+	for ( int i=0; i<NUM_SPHERES; ++i ) {		
+		// Test for ray-sphere intersection
+		float a = dot(ray.dir, ray.dir);
+		float b = 2.0 * dot(ray.dir, ray.pos - spheres[i].center);
+		float c = dot(ray.pos - spheres[i].center, ray.pos - spheres[i].center) - spheres[i].radius * spheres[i].radius;
+		float delta = b*b - 4.0*a*c;
+		if (delta < 0.0) continue;		
+		float root = (-b -sqrt(delta)) / (2.0*a);		
+		if (root < 0.0 || root > hit.t ) continue;		
+		// If intersection is found, update the given HitInfo		
+		hit.t = root;
+		hit.position = ray.pos + root*ray.dir;
+		hit.normal = normalize(hit.position -spheres[i].center);
+		hit.mtl = spheres[i].mtl;
+		foundHit = true;						
+	}
+	return foundHit;
+}
+
+// Given a ray, returns the shaded color where the ray intersects a sphere.
+// If the ray does not hit a sphere, returns the environment color.
+vec4 RayTracer( Ray ray )
+{
+	HitInfo hit;	
+	if ( IntersectRay( hit, ray ) ) {		
+		// Ray hit a sphere, so shade the hit point
+		vec3 view = normalize( -ray.dir );
+		vec3 clr = Shade( hit.mtl, hit.position, hit.normal, view );
+				
+		vec3 k_s = hit.mtl.k_s;	
+		Ray currRay = ray;
+		for ( int bounce=0; bounce<MAX_BOUNCES; ++bounce ) {
+			if ( bounce >= bounceLimit ) break;
+			if ( hit.mtl.k_s.r + hit.mtl.k_s.g + hit.mtl.k_s.b <= 0.0 ) break;
+			
+			Ray W_r;	// this is the reflection ray
+			HitInfo reflHit;	// reflection hit info
+			
+			// Initialize the reflection ray			
+			W_r.pos = hit.position + 0.001 * hit.normal; // + bias						
+			W_r.dir = reflect( currRay.dir, hit.normal );
+			//W_r.dir = 2.0 * dot( currRay.dir, hit.normal ) * hit.normal - currRay.dir;										
+
+			if ( IntersectRay( reflHit, W_r ) ) {				
+				// Hit found, so shade the hit point
+				vec3 ReflClr = Shade( reflHit.mtl, reflHit.position, reflHit.normal, view );
+				clr += k_s * ReflClr;				
+				// Update the loop variables for tracing the next reflection ray		
+				currRay = W_r;				
+				hit = reflHit;
+				k_s = reflHit.mtl.k_s;				
+				view = normalize(-W_r.dir);				
+
+			} else {
+				// The refleciton ray did not intersect with anything,
+				// so we are using the environment color
+				clr += k_s * textureCube( envMap, W_r.dir.xzy ).rgb;
+				break;	// no more reflections
+			}
+		}
+		return vec4( clr, 1 );	// return the accumulated color, including the reflections
+	} else {
+		return vec4( textureCube( envMap, ray.dir.xzy ).rgb, 0 );	// return the environment color
+	}
+}
+`;
+
+class RayTracer
+{
+	constructor()
+	{
+		this.bounceLimit = 5;
+		this.nSphere = 5; // number of FIXED spheres that Moves in the SIMULATION
+	}
+	initProg( vs, fs )
+	{
+		if ( this.prog ) gl.deleteProgram( this.prog );
+
+		const raytraceFS_head = raytraceFS_header + `
+			#define NUM_SPHERES ` + spheres.length + `
+			#define NUM_LIGHTS  ` + lights.length + `
+			#define MAX_BOUNCES ` + maxBounceLimit + `
+		`;
+		this.prog = InitShaderProgram( vs, raytraceFS_head + raytraceFS +fs );
+		if ( ! this.prog ) return;				
+		
+		gl.useProgram( this.prog );
+		gl.uniform1i( gl.getUniformLocation( this.prog, 'bounceLimit' ), this.bounceLimit );
+		for ( var i=0; i<spheres.length; ++i ) {
+			gl.uniform3fv( gl.getUniformLocation( this.prog, 'spheres['+i+'].center' ), spheres[i].center );
+			gl.uniform1f ( gl.getUniformLocation( this.prog, 'spheres['+i+'].radius' ), spheres[i].radius );
+			setMaterial( this.prog, 'spheres['+i+'].mtl', spheres[i].mtl );
+		}
+		for ( var i=0; i<lights.length; ++i ) {
+			gl.uniform3fv( gl.getUniformLocation( this.prog, 'lights['+i+'].position'  ), lights[i].position  );
+			gl.uniform3fv( gl.getUniformLocation( this.prog, 'lights['+i+'].intensity' ), lights[i].intensity );
+		}
+		this.updateProj();
+	}
+	updateProj()
+	{
+		if ( ! this.prog ) return;
+		gl.useProgram( this.prog );
+		var proj = gl.getUniformLocation( this.prog, 'proj' );
+		gl.uniformMatrix4fv( proj, false, perspectiveMatrix );
+	}
+	setBounceLimit( bounceLimit )
+	{
+		this.bounceLimit = bounceLimit;
+		if ( ! this.prog ) return;
+		gl.useProgram( this.prog );
+		gl.uniform1i( gl.getUniformLocation( this.prog, 'bounceLimit' ), this.bounceLimit );
+	}
+	// simulation step Update, only nSphere are Updated
+	updateSim()
+	{
+		gl.useProgram( this.prog );
+		for ( var i=1; i<(this.nSphere+1); ++i ) {
+			gl.uniform3fv( gl.getUniformLocation( this.prog, 'spheres['+i+'].center' ), spheres[i].center );
+			//gl.uniform1f ( gl.getUniformLocation( this.prog, 'spheres['+i+'].radius' ), spheres[i].radius );
+			setMaterial( this.prog, 'spheres['+i+'].mtl', spheres[i].mtl );
+		}
+	}
+	updateLight()
+	{
+		gl.useProgram( this.prog );
+		for ( var i=1; i<lights.length; ++i ) {
+			gl.uniform3fv( gl.getUniformLocation( this.prog, 'lights['+i+'].position'  ), lights[i].position  );
+			//gl.uniform3fv( gl.getUniformLocation( this.prog, 'lights['+i+'].intensity' ), lights[i].intensity );
+		}
+	}
+};
+
+class PrimaryRayTracer extends RayTracer
+{
+	init()
+	{
+		this.initProg( document.getElementById('raytraceVS').text, raytraceFS_primary );
+	}
+	draw( trans )
+	{
+		if ( ! this.prog ) return;
+		screenQuad.draw( this.prog, trans );
+	}
+}
+
+class SecondaryRayTracer extends RayTracer
+{
+	constructor()
+	{
+		super();
+		this.sphere = new SphereProg;
+	}
+	init()
+	{
+		this.initProg( document.getElementById('sphereVS').text, raytraceFS_secondary );
+		if ( ! this.prog ) return;
+		this.sphere.prog = this.prog;
+		this.sphere.init();
+	}
+	draw( mvp, trans )
+	{
+		if ( ! this.prog ) return;
+		background.draw( trans );
+		this.sphere.setTrans( mvp, [ trans.camToWorld[12], trans.camToWorld[13], trans.camToWorld[14] ] );
+		spheres.forEach( s => this.sphere.draw(s) );
+	}
+}
+
+var screenQuad = {
+	init( fov, z )
+	{
+		if ( ! this.vbuf ) this.vbuf = gl.createBuffer();
+		const r = canvas.width / canvas.height;
+		const ff = Math.PI * fov / 180;
+		const tant_2 = Math.tan( ff/2 );
+		const y = z * tant_2;
+		const x = y * r;
+		const rtp = [
+			-x, -y, -z,
+			 x, -y, -z,
+			 x,  y, -z,
+			-x, -y, -z,
+			 x,  y, -z,
+			-x,  y, -z,
+		];
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.vbuf);
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(rtp), gl.STATIC_DRAW);
+	},
+	draw( prog, trans )
+	{
+		gl.useProgram( prog );
+		gl.uniformMatrix4fv( gl.getUniformLocation( prog, 'c2w' ), false, trans.camToWorld );
+		gl.bindBuffer( gl.ARRAY_BUFFER, this.vbuf );
+		var p = gl.getAttribLocation ( prog, 'p' );
+		gl.vertexAttribPointer( p, 3, gl.FLOAT, false, 0, 0 );
+		gl.enableVertexAttribArray( p );
+		gl.drawArrays( gl.TRIANGLES, 0, 6 );
+	}
+};
+
+var background = {
+	init()
+	{
+		this.prog = InitShaderProgramFromScripts( 'raytraceVS', 'envFS' );
+	},
+	updateProj()
+	{
+		gl.useProgram( this.prog );
+		gl.uniformMatrix4fv( gl.getUniformLocation( this.prog, 'proj' ), false, perspectiveMatrix );
+	},
+	draw( trans )
+	{
+		gl.depthMask( false );
+		screenQuad.draw( this.prog, trans );
+		gl.depthMask( true );
+	}
+};
+
+// init le sfere che faranno parte della scena
+// 1. Aggiungere le sfere fisse (e che si muovono)
+// 2. Aggiungere le sfere casuali
+// 3. init RayTracer
+function InitScene()
+{	
+	spheres = fixed_spheres.slice();
+	const count = sphereCount;
+	const size = Math.sqrt(count)/2 + 1;
+	// 
+	for ( var i=1; i<count; ++i ) {
+		var valid = false;
+		var x, y, z, r;
+		while ( ! valid ) {
+			a = Math.random() * Math.PI * 2;
+			b = Math.random() * size;
+			x = Math.cos(a) * b;
+			y = Math.sin(a) * b;
+			r = Math.random()*0.6 + 0.1;
+			z = r-1;
+			valid = true;
+			for ( var j=1; j<spheres.length; ++j ) {
+				const c = spheres[j].center;
+				const dx = c[0] - x;
+				const dy = c[1] - y;
+				const dz = c[2] - z;
+				const len = Math.sqrt( dx*dx + dy*dy + dz*dz );
+				// Check for collision
+				if ( len < r + spheres[j].radius ) {
+					valid = false;
+					break;
+				}
+			}
+		}
+		const ks = Math.random(); // specular coefficient
+		const n = Math.random()*1000; // specular exponent
+		spheres.push({
+			center: [x,y,z],
+			radius: r,
+			mtl: {
+				k_d: [ Math.random(), Math.random(), Math.random() ], // diffuse coefficient
+				k_s: [ ks, ks, ks ],
+				n: n
+			}
+		});
+	}	
+	primaryRT.init(); 
+	secondaryRT.init();
+}
+
+function InitEnvironmentMap()
+{
+	environmentTexture = gl.createTexture();
+	gl.bindTexture( gl.TEXTURE_CUBE_MAP, environmentTexture );
+	
+	const url = 'https://webglfundamentals.org/webgl/resources/images/computer-history-museum/';
+	const files = [
+	  'pos-x.jpg',
+	  'neg-x.jpg',
+	  'pos-y.jpg',
+	  'neg-y.jpg',
+	  'pos-z.jpg',
+	  'neg-z.jpg',
+	];
+	const faces = [
+		gl.TEXTURE_CUBE_MAP_POSITIVE_X,
+		gl.TEXTURE_CUBE_MAP_NEGATIVE_X,
+		gl.TEXTURE_CUBE_MAP_POSITIVE_Y,
+		gl.TEXTURE_CUBE_MAP_NEGATIVE_Y,
+		gl.TEXTURE_CUBE_MAP_POSITIVE_Z,
+		gl.TEXTURE_CUBE_MAP_NEGATIVE_Z,
+	];
+
+	var loaded = 0;
+	for ( var i=0; i<6; ++i ) {
+		gl.texImage2D( faces[i], 0, gl.RGBA, 128, 128, 0, gl.RGBA, gl.UNSIGNED_BYTE, null );
+		const img = new Image();
+		img.crossOrigin = "anonymous";
+		img.face = faces[i];
+		img.onload = function() {
+			gl.bindTexture( gl.TEXTURE_CUBE_MAP, environmentTexture );
+			gl.texImage2D( this.face, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this );
+			loaded++;
+			if ( loaded == 6 ) {
+				gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
+				DrawScene();
+			}
+		};
+		img.src = url + files[i];
+	}
+	gl.texParameteri( gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR );
+}
+
+// Called once to initialize
+function InitWebGL()
+{
+	// Initialize the WebGL canvas
+	canvas = document.getElementById("canvas");
+	canvas.oncontextmenu = function() {return false;};
+	gl = canvas.getContext("webgl", {antialias: false, depth: true});	// Initialize the GL context
+	if (!gl) {
+		alert("Unable to initialize WebGL. Your browser or machine may not support it.");
+		return;
+	}
+	
+	// Initialize settings
+	gl.clearColor(0,0,0,0);
+	gl.enable(gl.DEPTH_TEST);
+	
+	InitEnvironmentMap();
+
+	triSphere.init();
+	background.init();
+
+	primaryRT   = new PrimaryRayTracer;
+	secondaryRT = new SecondaryRayTracer;
+
+	sphereDrawer = new SphereDrawer;
+	sphereDrawer.setLight( lights[0].position, lights[0].intensity );
+
+	// Simulation
+	boxDrawer = new BoxDrawer();
+	pointDrawer = new PointDrawer();
+	ropeDrawers = [];
+	for( var i=0; i<nSpheres; i++ )
+		ropeDrawers.push( new RopeDrawer() );
+
+	UpdateCanvasSize();	
+	InitScene();
+}
+
+// Called every time the window size is changed.
+function UpdateCanvasSize()
+{
+	canvas.style.width  = "100%";
+	canvas.style.height = "100%";
+	const pixelRatio = window.devicePixelRatio || 1;
+	canvas.width  = pixelRatio * canvas.clientWidth;
+	canvas.height = pixelRatio * canvas.clientHeight;
+	const width  = (canvas.width  / pixelRatio);
+	const height = (canvas.height / pixelRatio);
+	canvas.style.width  = width  + 'px';
+	canvas.style.height = height + 'px';
+	gl.viewport( 0, 0, canvas.width, canvas.height );
+	UpdateProjectionMatrix();
+}
+
+// This is the main function that handled WebGL drawing
+function DrawScene()
+{
+	gl.flush();
+	
+	var trans = GetTrans(); 
+	// trans.worldToCam === MV		
+	MVP = MatrixMult( perspectiveMatrix, trans.worldToCam );
+
+	// Clear the screen and the depth buffer.
+	gl.clear( gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT );
+
+	// Rasterization
+	if ( document.getElementById('raster').checked ) {
+		background.draw( trans );
+		sphereDrawer.setTrans( MVP, [ trans.camToWorld[12], trans.camToWorld[13], trans.camToWorld[14] ] );
+		spheres.forEach( s => sphereDrawer.draw(s) ); // Draw the spheres given the ShpereObject...
+	}
+	
+	// Ray Tracing
+	if ( document.getElementById('raytrace').checked ) {
+		primaryRT.draw( trans );
+	}
+	
+	// Rasterization + Ray Tracing
+	if ( document.getElementById('secondary').checked ) {
+		secondaryRT.draw( MVP, trans );
+	}
+
+	if ( showBox.checked ) 
+		boxDrawer.draw( MVP );
+	if( showRope.checked )
+		for( var i=0; i<nSpheres; i++ )
+			ropeDrawers[i].draw( MVP );
+
+	pointDrawer.draw(MVP);
+}
+
+// This is a helper function for compiling the given vertex and fragment shader script ids into a program.
+function InitShaderProgramFromScripts( vs, fs )
+{
+	return InitShaderProgram( document.getElementById(vs).text, document.getElementById(fs).text );	
+}
+
+// This is a helper function for compiling the given vertex and fragment shader source code into a program.
+function InitShaderProgram( vsSource, fsSource )
+{
+	const vs = CompileShader( gl.VERTEX_SHADER,   vsSource );
+	const fs = CompileShader( gl.FRAGMENT_SHADER, fsSource );
+
+	if ( ! vs || ! fs ) return null;
+	
+	const prog = gl.createProgram();
+	gl.attachShader(prog, vs);
+	gl.attachShader(prog, fs);
+	gl.linkProgram(prog);
+
+	if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+		alert('Unable to initialize the shader program: ' + gl.getProgramInfoLog(prog));
+		return null;
+	}
+	return prog;
+}
+
+// This is a helper function for compiling a shader, called by InitShaderProgram().
+function CompileShader( type, source )
+{
+	const shader = gl.createShader(type);
+	gl.shaderSource(shader, source);
+	gl.compileShader(shader);
+	if (!gl.getShaderParameter( shader, gl.COMPILE_STATUS) ) {
+		alert('An error occurred compiling shader:\n' + gl.getShaderInfoLog(shader));
+		gl.deleteShader(shader);
+		return null;
+	}
+	return shader;
+}
+
+// From RayTracer Init
+function setMaterial( prog, v, mtl )
+		{
+			gl.uniform3fv( gl.getUniformLocation( prog, v+'.k_d' ), mtl.k_d );
+			gl.uniform3fv( gl.getUniformLocation( prog, v+'.k_s' ), mtl.k_s );
+			gl.uniform1f ( gl.getUniformLocation( prog, v+'.n'   ), mtl.n   );
+		}
+
+</script>
+
+<script id="Win_Load_UIfx" type="text/javascript">
+
+window.onload = function() {
+	//init bool Checkboxs from the Sidemenu
+	showBox = document.getElementById('show-box');	
+	showRope = document.getElementById('show-rope');		
+	InitWebGL();
+	//lightView = new LightView();
+	canvas.zoom = function( s ) {
+		transZ *= s/canvas.height + 1;
+		if ( transZ < transZmin ) transZ = transZmin;
+		if ( transZ > transZmax ) transZ = transZmax;
+		UpdateProjectionMatrix();
+		DrawScene();
+	}
+	canvas.onwheel = function() { canvas.zoom(0.3*event.deltaY); }
+	canvas.onmousedown = function() {
+		if ( pendolum.mouseDown() ) {
+			canvas.ondblclick = null;
+			return;
+		}
+		canvas.ondblclick = canvas.resetView;				
+		var cx = event.clientX;
+		var cy = event.clientY;
+		if ( event.ctrlKey ) {
+			canvas.onmousemove = function() {
+				canvas.zoom(5*(event.clientY - cy));
+				cy = event.clientY;
+			}
+		}else {
+			canvas.onmousemove = function() {
+				viewRotZ += (cx - event.clientX)/canvas.width*5;
+				viewRotX -= (cy - event.clientY)/canvas.height*5;
+				cx = event.clientX;
+				cy = event.clientY;
+				const eps = 0.01;
+				if ( viewRotX < -0.1 ) viewRotX = -0.1;
+				if ( viewRotX > Math.PI/2 - eps ) viewRotX = Math.PI/2 - eps;
+				UpdateProjectionMatrix();
+				DrawScene();
+			}
+		}
+	}
+	canvas.onmouseup = canvas.onmouseleave = function() {
+		//canvas.onmousemove = null;
+		pendolum.mouseUp();
+		canvas.onmousemove = function() { pendolum.mouseMove(); }
+	}
+	canvas.onmousemove = function() { pendolum.mouseMove(); }
+	canvas.resetView = function() {
+		//rotX = 0;
+		//rotY = 0;
+		//transY = 0;
+		transZ = 3;
+		UpdateProjectionMatrix();
+		DrawScene();
+	}
+
+	// Simulation INIT	
+	pendolum = new Pendolum();
+	
+	console.log("Pendolum",pendolum);
+
+	SetGravity  ( document.getElementById('gravity') );	
+	//SetShininess( document.getElementById('shininess-exp') );
+	SetDamping  ( document.getElementById('damping') );
+	SetStiffness( document.getElementById('stiffness') );
+	SetFreeRest ( document.getElementById('free-rest') );	
+	
+	DrawScene();
+};
+
+function WindowResize()
+{
+	UpdateCanvasSize();
+	DrawScene();
+}
+
+function UseEnvironmentMap( param )
+{
+	gl.bindTexture( gl.TEXTURE_CUBE_MAP, param.checked ? environmentTexture : null );
+	DrawScene();
+}
+
+function IncBounceLimit( inc )
+{
+	var b = parseInt(document.getElementById('bounces-value').innerText);
+	b += inc;
+	if ( b < 0 ) b = 0;
+	if ( b > maxBounceLimit ) b = maxBounceLimit;
+	SetBounceLimit( b );
+	document.getElementById('bounces-range').value = b;
+}
+
+function SetBounceLimit( b )
+{
+	document.getElementById('bounces-value').innerText = b;
+	primaryRT.setBounceLimit( b );
+	secondaryRT.setBounceLimit( b );
+	UpdateProjectionMatrix();
+	DrawScene();
+}
+
+function IncCount( inc )
+{
+	var c = parseInt(document.getElementById('count-value').innerText);
+	c += inc;
+	if ( c < 1 ) c = 1;
+	if ( c > 100 ) c = 100;
+	SetCount( c );
+	document.getElementById('count-range').value = c;
+	NewScene();
+}
+
+function SetCount( c )
+{
+	document.getElementById('count-value').innerText = c;
+	sphereCount = c;
+}
+
+function NewScene()
+{
+	// Da usare Uguale x quando si computa il Dt della simulazione
+	InitScene(); // set. sfere da disegnare
+	primaryRT.init(); // reset del raytracer
+	secondaryRT.init();
+	DrawScene(); // disegna
+}
+
+function ShowControls()
+{
+	var c = document.getElementById('controls');
+	c.style.display = c.style.display == 'none' ? '' : 'none';
+}
+
+///////////////////////////////////////////////////////////////////////////////////
+// Pendolum Simulation
+///////////////////////////////////////////////////////////////////////////////////
+
+function MousePos()
+{
+	return {
+		x:  ( event.clientX / canvas.clientWidth  ) * 2 - 1,
+		y: -( event.clientY / canvas.clientHeight ) * 2 + 1
+	};
+}
+
+function SetTimeStepSize( param )
+{
+	var s = param.value;
+	document.getElementById('timestep-value').innerText = s + " ms";
+}
+
+function SetGravity( param )
+{
+	var v = param.value;
+	var s = v / 20;
+	document.getElementById('gravity-value').innerText = s.toFixed( 2 );
+	pendolum.gravity.y = -s;	
+	//massSpring.gravity.y = -s;
+}
+
+function SetDamping( param )
+{
+	var v = param.value;
+	var s = v / 20;
+	document.getElementById('damping-value').innerText = s.toFixed( 2 );
+	//massSpring.damping = s;
+	pendolum.damping = s;	
+}
+
+function SetStiffness( param )
+{	
+	var v = param.value;
+	var s = v / 20;
+	document.getElementById('stiffness-value').innerText = s.toFixed( 2 );
+	//massSpring.stiffness = s;
+	pendolum.stiffness = s;	
+}
+
+function SetFreeRest( param )
+{	
+	pendolum.freeRest = param.checked;
+}
+
+///////////////////////////////////////////////////////////////////////////////////
+</script>
+
+<style>
+html {
+	color: white;
+	background-color: black;
+	font-family: Arial;
+	overflow: hidden;
+}
+body {
+	padding: 0;
+	margin: 0;
+}
+input[type=checkbox], label {
+	cursor: hand;
+}
+input[type=range] {
+	width: 100%;
+}
+canvas {
+	display: block;
+	position: absolute;
+	top:  0;
+	left: 0;
+	width:  100%;
+	height: 100%;
+}
+#canvas-div {
+	position: relative;
+	width: 100%;
+	height: 100%;
+}
+#controls-div {
+	background-color: rgba(0,0,0,0.5);
+	position: absolute;
+	right: 1em;
+	top: 1em;
+	width: 18em;
+}
+#controls {
+	padding: 1em;
+}
+.control {
+	padding: 0.2em;
+	clear: both;
+}
+.val {
+	float: right;
+	text-align: right;
+}
+.value {
+	margin-right: 0.5em;
+}
+.btn {
+	width: 100%;
+}
+#buttons {
+	position: absolute;
+	right: 0;
+	top: 0;
+}
+#buttons input[type=button] {
+	background-color: rgba(80,80,80,0.5);
+	color: #aaa;
+	font-size: 70%;
+	outline: none;
+}
+</style>
+
+</head>
+<body onresize="WindowResize()">
+<div id="canvas-div"><canvas id="canvas"></canvas></div><div id="controls-div">
+<div id="buttons"><input type="button" value="V" onclick="ShowControls()"/></div>
+<div id="controls">
+<div class="control-group">
+<div class="control"><input id="raster" name="method" type="radio" onchange="DrawScene()" /><label for="raster"> Rasterization</label><br/></div>
+<div class="control"><input id="raytrace" name="method" type="radio" onchange="DrawScene()" checked /><label for="raytrace"> Ray Tracing</label><br/></div>
+<div class="control"><input id="secondary" name="method" type="radio" onchange="DrawScene()" /><label for="secondary"> Rasterization + Ray Tracing</label><br/></div>
+<div class="control"><hr/></div>
+<label for="sim-select" style="font-size: 15px;" >Select Simulation:</label>
+<select id="sim-select" onchange="pendolum.setSimulation(this)" style="float: right;">
+	<option value="1">1 Ball</option>
+	<option value="2">2 Balls</option>
+	<option value="3">3 Balls</option>	
+</select>
+<div class="control"><input type="button" value="Start Simulation" onclick="pendolum.toggleSimulation(this)"></div>
+<div class="control"><input type="button" value="Reset" onclick="pendolum.reset();pendolum.initPendolumRest();pendolum.updateSpheres();DrawScene()"></div>
+<div class="control"><span id="timestep-label">Time Step Size:</span><span class="value" id="timestep-value">20 ms</span><input id="timestep" type="range" min="1" max="100" value="20" oninput="SetTimeStepSize(this)" onchange="pendolum.restartSimulation()" ondblclick="this.value=20;this.oninput();this.onchange()"/></div>
+<div class="control"><span id="gravity-label">Gravity:</span><span class="value" id="gravity-value">1</span><input id="gravity" type="range" min="0" max="100" value="20" oninput="SetGravity(this)" ondblclick="this.value=20;this.oninput()"/></div>
+<div class="control"><span id="damping-label">Damping:</span><span class="value" id="damping-value">5</span><input id="damping" type="range" min="0" max="100" value="100" oninput="SetDamping(this)" ondblclick="this.value=20;this.oninput()"/></div>
+<div class="control"><span id="stiffness-label">Stiffness:</span><span class="value" id="stiffness-value">5</span><input id="stiffness" type="range" min="0" max="100" value="100" oninput="SetStiffness(this)" ondblclick="this.value=20;this.oninput()"/></div>
+</div><div class="control"><hr/></div>
+<div class="control"><input id="envmap" name="envmap" type="checkbox" onchange="UseEnvironmentMap(this)" checked /><label for="envmap"> Environment Map</label></div>
+<input id="show-rope" name="show-rope" type="checkbox" onchange="DrawScene()" checked /><label for="show-rope"> Rope</label>		
+<input id="show-box" name="show-box" type="checkbox" onchange="DrawScene()" checked /><label for="show-box"> Box</label>		
+<input id="free-rest" name="free-rest" type="checkbox" onchange="SetFreeRest(this)" /><label for="free-rest">mod Rope Length</label>		
+<div class="control"><span id="bounces-label">Bounce Limit:</span><span class="val"><span class="value" id="bounces-value">5</span><input type="button" value="+" onclick="IncBounceLimit(1)"><input type="button" value="&ndash;" onclick="IncBounceLimit(-1)"></span><input id="bounces-range" type="range" min="0" max="16" value="5" oninput="SetBounceLimit(this.value)"/></div>
+<div class="control"><span id="count-label">Sphere Count:</span><span class="val"><span class="value" id="count-value">10</span><input type="button" value="+" onclick="IncCount(1)"><input type="button" value="&ndash;" onclick="IncCount(-1)"></span><input id="count-range" type="range" min="1" max="100" value="10" oninput="SetCount(this.value)" onchange="NewScene()"/></div>
+<div class="control"><input type="button" class="btn" value="New Random Scene" onclick="NewScene()"></div>
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>

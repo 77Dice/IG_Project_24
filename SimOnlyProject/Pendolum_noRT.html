@@ -339,8 +339,6 @@ class RopeDrawer {
       }
   }
 
-
-
 </script>
 
 <script id="Help_FXs" type="text/javascript">
@@ -1313,7 +1311,8 @@ class Pendolum
 			var scale = 0.1/maxSize;
 			this.meshes[i].shiftAndScale( shift, scale );
 			if(i == 2)// save before the shift
-				this.boundingBox = this.meshes[i].getBoundingBox();			
+				this.boundingBox = this.meshes[i].getBoundingBox();	
+			console.log(this.boundingBox);		
 			this.meshes[i].shiftAndScale( postShift[i], 1 );
 			this.meshes[i].computeNormals();			
 		}
