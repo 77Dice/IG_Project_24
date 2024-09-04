@@ -654,6 +654,7 @@ var boxFS = `
 			let distance = document.getElementById('light-dist').innerText * 1;
 			var lightDir = [ cy*sx, -sy, cy*cx ];									
 			lights[0].position = [-sy * distance   ,cy*sx * distance, distance];//swap X,Y	
+			sphereDrawer.setLight( lights[0].position, lights[0].intensity );
 			primaryRT.updateRT();
 			secondaryRT.updateRT();
 			DrawScene();
@@ -2345,6 +2346,7 @@ function SetLightDistance( param )
 	var v = param.value; // 1 to 1000	
 	document.getElementById('light-dist').innerText = v;	
 	lights[0].position[2] = v;
+	sphereDrawer.setLight( lights[0].position, lights[0].intensity );
 	primaryRT.updateRT();
 	secondaryRT.updateRT();
 	DrawScene();
