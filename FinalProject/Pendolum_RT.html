@@ -655,16 +655,17 @@ var boxFS = `
 			var lightDir = [ cy*sx, -sy, cy*cx ];									
 			lights[0].position = [-sy * distance   ,cy*sx * distance, distance];//swap X,Y	
 			sphereDrawer.setLight( lights[0].position, lights[0].intensity );
-			primaryRT.updateRT();
-			secondaryRT.updateRT();
+			if ( document.getElementById('raytrace').checked )
+				primaryRT.updateRTLights();
+			if ( document.getElementById('secondary').checked )
+				secondaryRT.updateRTLights();
 			DrawScene();
 		}
 		
 		reset()
 		{
 			this.rotX = 0;
-			this.rotY = 0;
-			this.posZ = 5;
+			this.rotY = 0;			
 			this.draw();
 			this.updateLightDir();
 		}
@@ -739,7 +740,7 @@ var boxFS = `
 			this.rPositions = new Array(nSpheres);
 			this.rVelocities = new Array(nSpheres);
 			this.pRestLength = new Array(nSpheres);
-			this.boundingBox = {max : [0.1, 0.1, 0.1], min : [-0.1, -0.1, -0.1]}; 
+			//this.boundingBox = {max : [0.1, 0.1, 0.1], min : [-0.1, -0.1, -0.1]}; 
 			this.Init();					
 		}
 						
@@ -843,7 +844,7 @@ var boxFS = `
 				];
 			}
 			for( var i=0; i<nSpheres; ++i ) {				
-				this.rVelocities[i] = [new Vec3(0,0,0),new Vec3(0,0,0)];				
+				this.rVelocities[i] = new Vec3(0,0,0);				
 				ropeDrawers[i].setRope(this.rPositions[i]);				
 			}									
 		}
@@ -852,9 +853,8 @@ var boxFS = `
 		initPendolumRest() 
 		{  					
 			this.pRestLength.fill(1.0);				
-		}
-	
-	
+		}		
+		
 		startSimulation()
 		{		
 			if ( ! this.isSimulationRunning() ) 
@@ -879,9 +879,10 @@ var boxFS = `
 		}
 		
 		// when change the simulation type
+		// or when reset the simulation (no param)
 		setSimulation(param){		
-			this.simType = param.value;		
-			this.Init();
+			if (param != undefined)
+				this.simType = param.value;					
 			this.reset();
 			this.initPendolumRest();
 			this.updateSpheres();
@@ -889,52 +890,37 @@ var boxFS = `
 		}
 		
 		
-		updateSpheres() {    
-			for( var i=0; i<nSpheres; ++i ) {
-			//	// Update the Rope
-				ropeDrawers[i].setRope(this.rPositions[i]);							
-			}
-			for (var i=1; i<(nSpheres+1); ++i){
+		updateSpheres() {    			
+			for (var i=0; i<(nSpheres+1); ++i){
+				if( i<nSpheres ){
+					// Update the Rope
+					ropeDrawers[i].setRope(this.rPositions[i]);
+				}
+				if (i > 0){				
+				// update the center of the sphere
 				let center = this.rPositions[i-1][1];
 				let newCenter = new Array(3);
 				newCenter[0] = center.x;
 				newCenter[1] = center.y;
 				newCenter[2] = center.z;
 				spheres[i].center = newCenter; // update the center of the sphere				
+				}
 			}
 			// update Point Drawer, RT and redraw scene
 			pointDrawer.updatePoint();
-			primaryRT.updateRT();
-			secondaryRT.updateRT();			
+			if ( document.getElementById('raytrace').checked ) 
+				primaryRT.updateRTPositions();	
+			if ( document.getElementById('secondary').checked )
+				secondaryRT.updateRTPositions();			
 			DrawScene();				
-		}
-	
-		copyholdVert() {
-			if(Array.isArray(this.holdVert)){
-				let holdVert = Array(this.holdVert.length);
-			for( var i=0; i<this.holdVert.length; ++i )
-				holdVert[i] = this.holdVert[i].copy();
-				return holdVert;
-			}else{
-				return this.holdVert.copy();
-			}		
-		}
-		setholdVert( holdVert ) {
-			if(Array.isArray(holdVert)){
-				this.holdVert = Array(holdVert.length);		
-				for( var i=0; i<holdVert.length; ++i )
-					this.holdVert[i] = holdVert[i].copy();
-			}else{
-				this.holdVert.set(holdVert);
-			}
-		}
+		}			
 	
 		step()
 		{
 			// holdVert ==> List of CenterOFmass + all vertex of one mesh
 			// selRope ==> selected pendolum
 			// remember the position of the selected vertex, if any		 
-			var p = this.holdVert ? this.copyholdVert() : undefined;
+			var p = this.holdVert ? this.holdVert.copy() : undefined;
 			// Update positions and velocities
 			var timestep = document.getElementById("timestep").value;
 			const dt = timestep / 1000; // time step in seconds	
@@ -949,7 +935,7 @@ var boxFS = `
 						  this.restitution,
 						  damping,
 						  this.stiffness,						  
-						  this.boundingBox
+						  //this.boundingBox
 						);
 						
 			// make sure that the selected vertex does not change position			
@@ -957,12 +943,12 @@ var boxFS = `
 				// 8 vertici + 1 centro(array) || 1 cealing(Vec3)
 				//console.log("p: ", p); 	
 				// [numeroPendolo, cealing | center of mass]
-				//console.log(this.selRope, "this.selRope");
-				this.setholdVert(p);
+				//console.log(this.selRope, "this.selRope");				
+				this.holdVert.set(p);
 	
 				let pendolumNum = this.selRope[0];			
 				// stop movement of the selected pendolum						
-				this.rVelocities[pendolumNum][1].init(0, 0, 0);				
+				this.rVelocities[pendolumNum].init(0, 0, 0);				
 			}
 			
 			//this.updateMesh();	
@@ -1083,7 +1069,8 @@ var boxFS = `
 		restitution,
 		damping,
 		stiffness,
-		box)
+		//box
+	)
 		{
 		//console.log(rPositions,"rPositions");
 		//console.log(rVelocities,"rVelocities");
@@ -1096,14 +1083,12 @@ var boxFS = `
 	
 		// just one for every center of mass 
 		// (not counting cealing points)
-		// Axis Y and Z are inverted!!
-		var forces = [...Array(rPositions.length)].map(
-		(_, i) => new Vec3(0, 0, gravity.y * particleMass));	
-		
-		forces.forEach((forceVector, pNumb) => {				
+		// Axis Y and Z are inverted!!									
+
+		for (let pNumb = 0; pNumb < rPositions.length; pNumb++) {				
 			let p0Pos = rPositions[pNumb][0]; //Vec3		
 			let p1Pos = rPositions[pNumb][1];
-			let p1Vel = rVelocities[pNumb][1].len2();
+			let p1Vel = rVelocities[pNumb].len2();
 			// ogni singolo errore introdotto al Dt precedente 
 			// va ad accumularsi in ogni passo successivo...
 			// quindi bisogna considerare initLength...
@@ -1111,87 +1096,73 @@ var boxFS = `
 			let curLength = p1Pos.sub(p0Pos).len();	
 			let restLength = pRestLength[pNumb];					
 			let pendolDir = p1Pos.sub(p0Pos).unit();
-			let orthoDir = pendolDir.cross(new Vec3(0, 0, 1)).unit();
-			let cosTheta = pendolDir.dot(new Vec3(0, 0, 1));		
-				
-							
+			//let orthoDir = pendolDir.cross(new Vec3(0, 0, 1)).unit();
+			let cosTheta = pendolDir.dot(new Vec3(0, 0, 1));													
 			// tension force => mg*cosTheta
 			let tension = particleMass * gravity.y * (cosTheta);
-			let tensionForceP0 = pendolDir.mul(tension);
-			let tensionForceP1 = tensionForceP0.mul(-1);
+			let tensionForceP1 = pendolDir.mul(- tension);			
 			// Centripetal force => m*v^2/r
 			let centripetal = particleMass * p1Vel / restLength ;
-			let centripetalForceP0 = pendolDir.mul(centripetal);
-			let centripetalForceP1 = centripetalForceP0.mul(-1);
+			let centripetalForceP1 = pendolDir.mul(- centripetal);			
 			// spring force => stiffness*(l-l0)
-			let springForceP0 = pendolDir.mul(stiffness * (curLength - restLength));
-			let springForceP1 = springForceP0.mul(-1);
+			let springForceP1 = pendolDir.mul(-stiffness * (curLength - restLength));
+			//let springForceP1 = springForceP0.mul(-1);
 			// damping force => -damping*v		
-			let lDamp = rVelocities[pNumb][1].dot(pendolDir);
-			let dampingForceP0 = pendolDir.mul(damping * lDamp);
-			let dampingForceP1 = dampingForceP0.mul(-1);
+			let lDamp = rVelocities[pNumb].dot(pendolDir);
+			let dampingForceP1 = pendolDir.mul(- damping * lDamp);			
+				
+			let Velocity = new Vec3(0, 0, gravity.y * particleMass);
+			Velocity = Velocity.add(tensionForceP1).add(centripetalForceP1)
+						.add(springForceP1).add(dampingForceP1)
+						.div(particleMass).mul(dt);
 			
+			rVelocities[pNumb].inc(Velocity);
+			rPositions[pNumb][1].inc(rVelocities[pNumb].mul(dt));
+		};				
 	
-			forces[pNumb] = forces[pNumb]
-			.add(tensionForceP1)
-			.add(centripetalForceP1)
-			.add(springForceP1)
-			.add(dampingForceP1);
-	
-		});
-		
-		// Update positions and velocities 
-		// of center of Mass & all vertex
-		rVelocities.forEach((rVel, pNumb) => {		
-			// Compute Acceleration for center of Mass...
-			let acc = forces[pNumb].div(particleMass);
-			// Semi-Implicit Euler Integration
-			rVel[1].inc(acc.mul(dt));
-			rPositions[pNumb][1].inc(rVel[1].mul(dt));			
-		});
 					
-		let xMax = 1.0 - box.max[0], xMin = -1.0 - box.min[0];	
-		let yMax = 1.0 - box.max[1], yMin = -1.0 - box.min[1];
-		let zMax = 1.0 - box.max[2], zMin = -1.0 - box.min[2];			
+		let xMax = 0.9, xMin = -0.9;//= 1.0 - box.max[0], xMin = -1.0 - box.min[0];	
+		let yMax = 0.9, yMin = -0.9;//1.0 - box.max[1], yMin = -1.0 - box.min[1];
+		let zMax = 0.9, zMin = -0.9;//1.0 - box.max[2], zMin = -1.0 - box.min[2];					
 		// Wall Detection center of mass
 		// cealing has no collision
 		rPositions.forEach((rPos, pNumb) => {
 			let pos = rPos[1]; //center of mass					
 			if(pos.x > xMax){
 				let h = pos.x - xMax;
-				rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);			
+				rVelocities[pNumb] = rVelocities[pNumb].mul(-restitution);			
 				pos.x -= h*restitution;
 			}
 			if(pos.x < xMin){
 				let h = xMin - pos.x;			
-				rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+				rVelocities[pNumb] = rVelocities[pNumb].mul(-restitution);
 				pos.x += h*restitution;
 			}
 			if(pos.y > yMax){			
 				let h = pos.y - yMax;			
-				rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+				rVelocities[pNumb] = rVelocities[pNumb].mul(-restitution);
 				pos.y -= h*restitution;
 			}
 			if(pos.y < yMin){
 				let h = yMin - pos.y;			
-				rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+				rVelocities[pNumb] = rVelocities[pNumb].mul(-restitution);
 				pos.y += h*restitution;
 			}
 			if(pos.z > zMax){
 				let h = pos.z - zMax;			
-				rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+				rVelocities[pNumb] = rVelocities[pNumb].mul(-restitution);
 				pos.z -= h*restitution;
 			}
 			if(pos.z < zMin){
 				let h = zMin - pos.z;			
-				rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);
+				rVelocities[pNumb] = rVelocities[pNumb].mul(-restitution);
 				pos.z += h*restitution;
 			}
 		});
 	
 		// handle collisions with other Center of Mass
 		// when collision occurs ==> elastic collision 		
-		let minDist = box.max[0] - box.min[0];	
+		let minDist = 0.2; //box.max[0] - box.min[0];			
 		rPositions.forEach((rPos, pNumb) => {		
 			rPositions.forEach((rPos2, pNumb2) => {
 				if(pNumb === pNumb2) return;
@@ -1202,18 +1173,18 @@ var boxFS = `
 					// elastic collision
 					let normalDir = pos.sub(pos2).unit();				
 					//normalDir = new Vec3(normalDir.x,0,0);
-					let isHorizontal = normalDir.y === 0;
+					//let isHorizontal = normalDir.y === 0;
 					//console.log("isHorizontal",isHorizontal);				
 					let h = minDist - dist;
-					let v1 = rVelocities[pNumb][1].dot(normalDir);
-					let v2 = rVelocities[pNumb2][1].dot(normalDir);
+					let v1 = rVelocities[pNumb].dot(normalDir);
+					let v2 = rVelocities[pNumb2].dot(normalDir);
 					// same mass
 					let u1 = v2, u2 = v1;
 					// update ropes Pos & velocities				
 					pos.inc(normalDir.mul(h));								
 					pos2.inc(normalDir.mul(-h));				
-					rVelocities[pNumb][1] = rVelocities[pNumb][1].sub(normalDir.mul(v1-u1));
-					rVelocities[pNumb2][1] = rVelocities[pNumb2][1].sub(normalDir.mul(v2-u2));					
+					rVelocities[pNumb] = rVelocities[pNumb].sub(normalDir.mul(v1-u1));
+					rVelocities[pNumb2] = rVelocities[pNumb2].sub(normalDir.mul(v2-u2));					
 				}
 			});
 			// + handle collisions with RANDOM Spheres in the scene	
@@ -1227,7 +1198,7 @@ var boxFS = `
 				if(dist <= minDist2){					
 					let normalDir = pos.sub(center).unit();				
 					let h = minDist2 - dist;
-					rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);												
+					rVelocities[pNumb] = rVelocities[pNumb].mul(-restitution);												
 					pos.inc(normalDir.mul(h*restitution));																	
 				}			
 			}
@@ -1446,6 +1417,7 @@ class SphereProg
 	}
 	draw( sphere )
 	{
+		// when Draw it send the data to the GPU, No need to Update in step() fx
 		gl.useProgram( this.prog );
 		gl.uniform3fv( this.center,  sphere.center  );
 		gl.uniform1f ( this.radius,  sphere.radius  );
@@ -1781,19 +1753,19 @@ class RayTracer
 		gl.useProgram( this.prog );
 		gl.uniform1i( gl.getUniformLocation( this.prog, 'bounceLimit' ), this.bounceLimit );
 	}
-	// simulation step Update, only nSphere are Updated
-	// plus the light position and intensity
-	updateRT()
+	// simulation step Update, only nSphere are Updated	
+	updateRTPositions()
 	{		
 		gl.useProgram( this.prog );
-		for ( var i=1; i<(this.nSphere+1); ++i ) {
-			gl.uniform3fv( gl.getUniformLocation( this.prog, 'spheres['+i+'].center' ), spheres[i].center );
-			//gl.uniform1f ( gl.getUniformLocation( this.prog, 'spheres['+i+'].radius' ), spheres[i].radius );
-			setMaterial( this.prog, 'spheres['+i+'].mtl', spheres[i].mtl );
-		}
+		for ( var i=1; i<(this.nSphere+1); ++i )
+			gl.uniform3fv( gl.getUniformLocation( this.prog, 'spheres['+i+'].center' ), spheres[i].center );			
+	}
+	// plus the light position and intensity
+	updateRTLights()
+	{
+		gl.useProgram( this.prog );
 		gl.uniform3fv( gl.getUniformLocation( this.prog, 'lights['+0+'].position'  ), lights[0].position  );
 		gl.uniform3fv( gl.getUniformLocation( this.prog, 'lights['+0+'].intensity' ), lights[0].intensity );
-
 	}
 };
 
@@ -2182,8 +2154,7 @@ window.onload = function() {
 	
 	console.log("Pendolum",pendolum);
 
-	SetGravity  ( document.getElementById('gravity') );	
-	//SetShininess( document.getElementById('shininess-exp') );
+	SetGravity  ( document.getElementById('gravity') );		
 	SetDamping  ( document.getElementById('damping') );
 	SetStiffness( document.getElementById('stiffness') );
 	SetFreeRest ( document.getElementById('free-rest') );	
@@ -2336,8 +2307,12 @@ function SetLightIntensity( param )
 	var s = v / 50;	
 	document.getElementById('light-value').innerText = s.toFixed( 2 );
 	lights[0].intensity = [s,s,s];
-	primaryRT.updateRT();
-	secondaryRT.updateRT();
+	if ( document.getElementById('raster').checked )
+		sphereDrawer.setLight( lights[0].position, lights[0].intensity );
+	if ( document.getElementById('raytrace').checked )
+		primaryRT.updateRTLights();
+	if ( document.getElementById('secondary').checked )
+		secondaryRT.updateRTLights();
 	DrawScene();
 }
 
@@ -2346,9 +2321,12 @@ function SetLightDistance( param )
 	var v = param.value; // 1 to 1000	
 	document.getElementById('light-dist').innerText = v;	
 	lights[0].position[2] = v;
-	sphereDrawer.setLight( lights[0].position, lights[0].intensity );
-	primaryRT.updateRT();
-	secondaryRT.updateRT();
+	if ( document.getElementById('raster').checked )
+		sphereDrawer.setLight( lights[0].position, lights[0].intensity );
+	if ( document.getElementById('raytrace').checked )
+		primaryRT.updateRTLights();
+	if ( document.getElementById('secondary').checked )
+		secondaryRT.updateRTLights();
 	DrawScene();
 }
 
@@ -2460,7 +2438,7 @@ canvas {
 	<option value="3">3 Balls</option>	
 </select>
 <div class="control"><input type="button" value="Start Simulation" onclick="pendolum.toggleSimulation(this)"></div>
-<div class="control"><input type="button" value="Reset" onclick="pendolum.reset();pendolum.initPendolumRest();pendolum.updateSpheres();DrawScene()"></div>
+<div class="control"><input type="button" value="Reset" onclick="pendolum.setSimulation()"></div>
 <div class="control"><span id="timestep-label">Time Step Size:</span><span class="value" id="timestep-value">20 ms</span><input id="timestep" type="range" min="1" max="100" value="20" oninput="SetTimeStepSize(this)" onchange="pendolum.restartSimulation()" ondblclick="this.value=20;this.oninput();this.onchange()"/></div>
 <div class="control"><span id="gravity-label">Gravity:</span><span class="value" id="gravity-value">1</span><input id="gravity" type="range" min="0" max="100" value="20" oninput="SetGravity(this)" ondblclick="this.value=20;this.oninput()"/></div>
 <div class="control"><span id="damping-label">Damping:</span><span class="value" id="damping-value">5</span><input id="damping" type="range" min="0" max="100" value="100" oninput="SetDamping(this)" ondblclick="this.value=20;this.oninput()"/></div>
