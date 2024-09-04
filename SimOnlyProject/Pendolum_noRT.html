@@ -1488,7 +1488,6 @@ class Pendolum
 		//var r = this.rPositions[i][0].sub(this.rPositions[i][1]).len();		
 	}
 
-
 	startSimulation()
 	{		
 		if ( ! this.isSimulationRunning() ) 
@@ -1518,8 +1517,7 @@ class Pendolum
 		this.reset();
 		this.initPendolumRest();
 		DrawScene();
-	}
-	
+	}	
 	
 	updateMesh() {    
 		for( var i=0; i<nSpheres; ++i ) {
@@ -1914,10 +1912,12 @@ function PendolumStep(
 		
 		if(pos.x > xMax){
 			let h = pos.x - xMax;
-			rVelocities[pNumb][1] = rVelocities[pNumb][1].mul(-restitution);			
+			rVelocities[pNumb][1] 
+				= rVelocities[pNumb][1].mul(-restitution);			
 			pos.x -= h*restitution;			
 			vPositions[pNumb].forEach((vPos, i) => {									  				
-				vVelocities[pNumb][i] = vVelocities[pNumb][i].mul(-restitution);
+				vVelocities[pNumb][i] 
+					= vVelocities[pNumb][i].mul(-restitution);
 				vPos.x -= h*restitution;			
 			});
 		}

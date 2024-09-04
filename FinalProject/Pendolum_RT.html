@@ -245,6 +245,61 @@ function MatrixInverse( m )
 	return r;
 }
 
+// for light control
+function ProjectionMatrix( c, z, fov_angle=60 )
+{
+	var r = c.width / c.height;
+	var n = (z - 1.74);
+	const min_n = 0.001;
+	if ( n < min_n ) n = min_n;
+	var f = (z + 1.74);;
+	var fov = 3.145 * fov_angle / 180;
+	var s = 1 / Math.tan( fov/2 );
+	return [
+		s/r, 0, 0, 0,
+		0, s, 0, 0,
+		0, 0, (n+f)/(f-n), 1,
+		0, 0, -2*n*f/(f-n), 0
+	];
+}
+
+// from PROJECT_7
+function GetModelViewMatrix(translationX,translationY,translationZ,rotationX,rotationY)
+{
+  	// first column
+  	let a = Math.cos(rotationY);
+  	let c = -Math.sin(rotationY);
+  	// second column
+  	let e = Math.sin(rotationY) * Math.sin(rotationX);
+  	let f = Math.cos(rotationX);
+  	let g = Math.cos(rotationY) * Math.sin(rotationX);
+  	// third column
+  	let i = Math.sin(rotationY) * Math.cos(rotationX);
+  	let j = -Math.sin(rotationX);
+  	let k = Math.cos(rotationY) * Math.cos(rotationX);
+
+  	var mv = [
+  	  a,
+  	  0,
+  	  c,
+  	  0,
+  	  e,
+  	  f,
+  	  g,
+  	  0,
+  	  i,
+  	  j,
+  	  k,
+  	  0,
+  	  translationX,
+  	  translationY,
+  	  translationZ,
+  	  1,
+  	];
+
+  	return mv;
+}
+
 </script>
 
 <script id="WhiteBox__Drawer" type="text/javascript">
@@ -455,6 +510,216 @@ var boxFS = `
 	
 </script>
 
+<script id="lightControlCode" type="text/javascript">
+	///////////////////////////////////////////////////////////////////////////////////
+	// Below is the light view control code
+	///////////////////////////////////////////////////////////////////////////////////
+	
+	var lightView;
+	
+	class LightView
+	{
+		constructor()
+		{
+			this.canvas = document.getElementById("lightcontrol");
+			this.canvas.oncontextmenu = function() {return false;};
+			this.gl = this.canvas.getContext("webgl", {antialias: false, depth: true});	// Initialize the GL context
+			if (!this.gl) {
+				alert("Unable to initialize WebGL. Your browser or machine may not support it.");
+				return;
+			}
+			
+			// Initialize settings
+			this.gl.clearColor(0.33,0.33,0.33,0);
+			this.gl.enable(gl.DEPTH_TEST);
+			
+			this.rotX = 0;
+			this.rotY = 0;
+			this.posZ = 5;
+			
+			this.resCircle = 32;
+			this.resArrow = 16;
+			this.buffer = this.gl.createBuffer();
+			var data = [];
+			for ( var i=0; i<=this.resCircle; ++i ) {
+				var a = 2 * Math.PI * i / this.resCircle;
+				var x = Math.cos(a);
+				var y = Math.sin(a);
+				data.push( x * .9 );
+				data.push( y * .9 );
+				data.push( 0 );
+				data.push( x );
+				data.push( y );
+				data.push( 0 );
+			}
+			for ( var i=0; i<=this.resCircle; ++i ) {
+				var a = 2 * Math.PI * i / this.resCircle;
+				var x = Math.cos(a);
+				var y = Math.sin(a);
+				data.push( x );
+				data.push( y );
+				data.push( -.05 );
+				data.push( x );
+				data.push( y );
+				data.push( 0.05 );
+			}
+			for ( var i=0; i<=this.resArrow; ++i ) {
+				var a = 2 * Math.PI * i / this.resArrow;
+				var x = Math.cos(a) * .07;
+				var y = Math.sin(a) * .07;
+				data.push( x );
+				data.push( y );
+				data.push( -1 );
+				data.push( x );
+				data.push( y );
+				data.push( 0 );
+			}
+			data.push( 0 );
+			data.push( 0 );
+			data.push( -1.2 );
+			for ( var i=0; i<=this.resArrow; ++i ) {
+				var a = 2 * Math.PI * i / this.resArrow;
+				var x = Math.cos(a) * .15;
+				var y = Math.sin(a) * .15;
+				data.push( x );
+				data.push( y );
+				data.push( -0.9 );
+			}
+			this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffer);
+			this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(data), this.gl.STATIC_DRAW);
+			
+			// Set the viewport size
+			this.canvas.style.width  = "";
+			this.canvas.style.height = "";
+			const pixelRatio = window.devicePixelRatio || 1;
+			this.canvas.width  = pixelRatio * this.canvas.clientWidth;
+			this.canvas.height = pixelRatio * this.canvas.clientHeight;
+			const width  = (this.canvas.width  / pixelRatio);
+			const height = (this.canvas.height / pixelRatio);
+			this.canvas.style.width  = width  + 'px';
+			this.canvas.style.height = height + 'px';
+			this.gl.viewport( 0, 0, this.canvas.width, this.canvas.height );						
+			this.proj = ProjectionMatrix( this.canvas, this.posZ, 30 );			
+			// Compile the shader program	
+			this.vs = loadShader(this.gl, this.gl.VERTEX_SHADER, lightViewVS);
+			this.fs = loadShader(this.gl, this.gl.FRAGMENT_SHADER, lightViewFS);
+			if (!this.vs || !this.fs) 
+				console.error('Errore durante la compilazione degli shader');
+
+			this.prog = this.gl.createProgram();
+			this.gl.attachShader( this.prog, this.vs );
+			this.gl.attachShader( this.prog, this.fs );
+			this.gl.linkProgram( this.prog );
+			if ( !this.gl.getProgramParameter( this.prog, this.gl.LINK_STATUS ) ) {
+				var info = this.gl.getProgramInfoLog( this.prog );
+				throw 'Could not compile WebGL program. \n\n' + info;
+			}
+			this.mvp = this.gl.getUniformLocation( this.prog, 'mvp' );
+			this.clr1 = this.gl.getUniformLocation( this.prog, 'clr1' );
+			this.clr2 = this.gl.getUniformLocation( this.prog, 'clr2' );
+			this.vertPos = this.gl.getAttribLocation( this.prog, 'pos' );
+			
+			this.draw();
+			this.updateLightDir();
+			
+			this.canvas.onmousedown = function() {
+				var cx = event.clientX;
+				var cy = event.clientY;
+				lightView.canvas.onmousemove = function() {
+					lightView.rotY += (cx - event.clientX)/lightView.canvas.width*5;
+					lightView.rotX += (cy - event.clientY)/lightView.canvas.height*5;
+					// Block light to go below the floor
+					if(lightView.rotX > Math.PI/2) lightView.rotX = Math.PI/2;
+					if(lightView.rotX < -Math.PI/2) lightView.rotX = -Math.PI/2;
+										
+					if( lightView.rotY > Math.PI/2 ) lightView.rotY = Math.PI/2;
+					if( lightView.rotY < -Math.PI/2 ) lightView.rotY = -Math.PI/2;
+					cx = event.clientX;
+					cy = event.clientY;
+					lightView.draw();
+					lightView.updateLightDir();
+				}
+			}
+			this.canvas.onmouseup = this.canvas.onmouseleave = function() {
+				lightView.canvas.onmousemove = null;
+			}
+		}
+		
+		updateLightDir()
+		{								
+			var cy = Math.cos( this.rotY );
+			var sy = Math.sin( this.rotY );
+			var cx = Math.cos( this.rotX );
+			var sx = Math.sin( this.rotX );
+			let distance = document.getElementById('light-dist').innerText * 1;
+			var lightDir = [ cy*sx, -sy, cy*cx ];									
+			lights[0].position = [-sy * distance   ,cy*sx * distance, distance];//swap X,Y	
+			primaryRT.updateRT();
+			secondaryRT.updateRT();
+			DrawScene();
+		}
+		
+		reset()
+		{
+			this.rotX = 0;
+			this.rotY = 0;
+			this.posZ = 5;
+			this.draw();
+			this.updateLightDir();
+		}
+		
+		draw()
+		{
+			// Clear the screen and the depth buffer.
+			this.gl.useProgram( this.prog );
+			this.gl.clear( this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT );
+			
+			this.gl.bindBuffer( this.gl.ARRAY_BUFFER, this.buffer );
+			this.gl.vertexAttribPointer( this.vertPos, 3, this.gl.FLOAT, false, 0, 0 );
+			this.gl.enableVertexAttribArray( this.buffer );
+	
+			this.gl.useProgram( this.prog );
+			var mvp = MatrixMult( this.proj, [ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,this.posZ,1 ] );
+			this.gl.uniformMatrix4fv( this.mvp, false, mvp );
+			this.gl.uniform3f( this.clr1, 0.6,0.6,0.6 );
+			this.gl.uniform3f( this.clr2, 0,0,0 );
+			this.gl.drawArrays( this.gl.TRIANGLE_STRIP, 0, this.resCircle*2+2 );
+	
+			var mv  = GetModelViewMatrix( 0, 0, this.posZ, this.rotX, this.rotY );
+			var mvp = MatrixMult( this.proj, mv );
+			this.gl.uniformMatrix4fv( this.mvp, false, mvp );
+			this.gl.uniform3f( this.clr1, 1,1,1 );
+			this.gl.drawArrays( this.gl.TRIANGLE_STRIP, 0, this.resCircle*2+2 );
+			this.gl.drawArrays( this.gl.TRIANGLE_STRIP, this.resCircle*2+2, this.resCircle*2+2 );
+			this.gl.uniform3f( this.clr1, 0,0,0 );
+			this.gl.uniform3f( this.clr2, 1,1,1 );
+			this.gl.drawArrays( this.gl.TRIANGLE_STRIP, this.resCircle*4+4, this.resArrow*2+2 );
+			this.gl.drawArrays( this.gl.TRIANGLE_FAN, this.resCircle*4+4 + this.resArrow*2+2, this.resArrow+2 );
+		}
+	}
+	// Vertex shader source code
+	var lightViewVS = `
+				attribute vec3 pos;
+				uniform mat4 mvp;
+				void main()
+				{
+					gl_Position = mvp * vec4(pos,1);
+				}
+			`;
+	// Fragment shader source code
+	var lightViewFS = `
+		precision mediump float;
+		uniform vec3 clr1;
+		uniform vec3 clr2;
+		void main()
+		{
+			gl_FragColor = gl_FrontFacing ? vec4(clr1,1) : vec4(clr2,1);
+		}
+	`;
+		
+	///////////////////////////////////////////////////////////////////////////////////
+	</script>
+
 <script id="PendolumSimulationCode" type="text/javascript">
 	///////////////////////////////////////////////////////////////////////////////////
 	// Simulation of One Pendolum, with 1 center of Mass and one Cealing Point...
@@ -638,8 +903,8 @@ var boxFS = `
 			}
 			// update Point Drawer, RT and redraw scene
 			pointDrawer.updatePoint();
-			primaryRT.updateSim();
-			secondaryRT.updateSim();			
+			primaryRT.updateRT();
+			secondaryRT.updateRT();			
 			DrawScene();				
 		}
 	
@@ -1211,7 +1476,7 @@ var viewRotX=0, viewRotZ=0, transZ=3;
 var sphereCount = 10;
 var primaryRT, secondaryRT;
 // Simulation
-var showBox;
+var showBox, lightView;
 var pointDrawer, ropeDrawers, boxDrawer;
 var pendolum,nSpheres = 5;
 var MVP;
@@ -1285,9 +1550,11 @@ var spheres = fixed_spheres.slice();
 
 var lights = [
 	{
-		position:  [ 0, 0, 1000 ],
-		intensity: [ 1, 1, 1 ]
-	}
+		position:  [ 0, 0, 1000 ], // no swapped
+		intensity: [ 1 , 1, 1 ]
+	},	
+	
+
 ];
 
 const raytraceFS_header = `
@@ -1482,9 +1749,10 @@ class RayTracer
 			#define NUM_LIGHTS  ` + lights.length + `
 			#define MAX_BOUNCES ` + maxBounceLimit + `
 		`;
+		
 		this.prog = InitShaderProgram( vs, raytraceFS_head + raytraceFS +fs );
 		if ( ! this.prog ) return;				
-		
+				
 		gl.useProgram( this.prog );
 		gl.uniform1i( gl.getUniformLocation( this.prog, 'bounceLimit' ), this.bounceLimit );
 		for ( var i=0; i<spheres.length; ++i ) {
@@ -1513,22 +1781,18 @@ class RayTracer
 		gl.uniform1i( gl.getUniformLocation( this.prog, 'bounceLimit' ), this.bounceLimit );
 	}
 	// simulation step Update, only nSphere are Updated
-	updateSim()
-	{
+	// plus the light position and intensity
+	updateRT()
+	{		
 		gl.useProgram( this.prog );
 		for ( var i=1; i<(this.nSphere+1); ++i ) {
 			gl.uniform3fv( gl.getUniformLocation( this.prog, 'spheres['+i+'].center' ), spheres[i].center );
 			//gl.uniform1f ( gl.getUniformLocation( this.prog, 'spheres['+i+'].radius' ), spheres[i].radius );
 			setMaterial( this.prog, 'spheres['+i+'].mtl', spheres[i].mtl );
 		}
-	}
-	updateLight()
-	{
-		gl.useProgram( this.prog );
-		for ( var i=1; i<lights.length; ++i ) {
-			gl.uniform3fv( gl.getUniformLocation( this.prog, 'lights['+i+'].position'  ), lights[i].position  );
-			//gl.uniform3fv( gl.getUniformLocation( this.prog, 'lights['+i+'].intensity' ), lights[i].intensity );
-		}
+		gl.uniform3fv( gl.getUniformLocation( this.prog, 'lights['+0+'].position'  ), lights[0].position  );
+		gl.uniform3fv( gl.getUniformLocation( this.prog, 'lights['+0+'].intensity' ), lights[0].intensity );
+
 	}
 };
 
@@ -1810,7 +2074,7 @@ function InitShaderProgramFromScripts( vs, fs )
 }
 
 // This is a helper function for compiling the given vertex and fragment shader source code into a program.
-function InitShaderProgram( vsSource, fsSource )
+function InitShaderProgram( vsSource, fsSource)
 {
 	const vs = CompileShader( gl.VERTEX_SHADER,   vsSource );
 	const fs = CompileShader( gl.FRAGMENT_SHADER, fsSource );
@@ -1828,6 +2092,7 @@ function InitShaderProgram( vsSource, fsSource )
 	}
 	return prog;
 }
+
 
 // This is a helper function for compiling a shader, called by InitShaderProgram().
 function CompileShader( type, source )
@@ -1860,7 +2125,7 @@ window.onload = function() {
 	showBox = document.getElementById('show-box');	
 	showRope = document.getElementById('show-rope');		
 	InitWebGL();
-	//lightView = new LightView();
+	lightView = new LightView();
 	canvas.zoom = function( s ) {
 		transZ *= s/canvas.height + 1;
 		if ( transZ < transZmin ) transZ = transZmin;
@@ -1988,6 +2253,26 @@ function ShowControls()
 	c.style.display = c.style.display == 'none' ? '' : 'none';
 }
 
+// Funzione per compilare uno shader (light Control)
+function loadShader(wgl, type, source) {
+    const shader = wgl.createShader(type);
+
+    // Invia il codice sorgente allo shader
+    wgl.shaderSource(shader, source);
+
+    // Compila lo shader
+    wgl.compileShader(shader);
+
+    // Verifica se la compilazione è avvenuta con successo
+    if (!wgl.getShaderParameter(shader, wgl.COMPILE_STATUS)) {
+        console.error('Errore durante la compilazione dello shader: ' + wgl.getShaderInfoLog(shader));
+        wgl.deleteShader(shader);
+        return null;
+    }
+
+    return shader;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////
 // Pendolum Simulation
 ///////////////////////////////////////////////////////////////////////////////////
@@ -2036,6 +2321,33 @@ function SetStiffness( param )
 function SetFreeRest( param )
 {	
 	pendolum.freeRest = param.checked;
+}
+
+function resetLight()
+{
+	lightView.reset();	
+	DrawScene();
+}
+
+function SetLightIntensity( param )
+{
+	var v = param.value;
+	var s = v / 50;	
+	document.getElementById('light-value').innerText = s.toFixed( 2 );
+	lights[0].intensity = [s,s,s];
+	primaryRT.updateRT();
+	secondaryRT.updateRT();
+	DrawScene();
+}
+
+function SetLightDistance( param )
+{
+	var v = param.value; // 1 to 1000	
+	document.getElementById('light-dist').innerText = v;	
+	lights[0].position[2] = v;
+	primaryRT.updateRT();
+	secondaryRT.updateRT();
+	DrawScene();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -2095,6 +2407,20 @@ canvas {
 .btn {
 	width: 100%;
 }
+#lightcontrol {
+	position: relative;	
+	width:  12em;
+	height: 12em;
+	background-color: black;
+	outline: 1px solid white;
+	outline-offset: -1px;
+}
+#lightcontrol-label {
+	position: relative;
+	top: 0.2em;
+	left: 0.2em;
+	pointer-events: none;
+}
 #buttons {
 	position: absolute;
 	right: 0;
@@ -2110,10 +2436,17 @@ canvas {
 
 </head>
 <body onresize="WindowResize()">
-<div id="canvas-div"><canvas id="canvas"></canvas></div><div id="controls-div">
+<div id="canvas-div"><canvas id="canvas"></canvas></div><div id="controls-div">	
 <div id="buttons"><input type="button" value="V" onclick="ShowControls()"/></div>
 <div id="controls">
 <div class="control-group">
+<canvas id="lightcontrol"></canvas>
+
+<div class="control"><label for="sim-select" style="font-size: 15px;" >Light Direction:</label>
+<input type="button" value="reset" onclick="resetLight()" style="float: right;"></div>
+<div class="control"><span id="light-int" style="float: left;">Light Intensity:</span><span class="value" id="light-value">1</span><input id="light_int" type="range" min="0" max="100" value="50" oninput="SetLightIntensity(this)" ondblclick="this.value=50;this.oninput()"/></div>
+<div class="control"><span id="light-dis" style="float: left;">Light Distance:</span><span class="value" id="light-dist">100</span><input id="light_dis" type="range" min="1" max="100" value="100" oninput="SetLightDistance(this)" ondblclick="this.value=100;this.oninput()"/></div>
+<div class="control"><hr/></div>
 <div class="control"><input id="raster" name="method" type="radio" onchange="DrawScene()" /><label for="raster"> Rasterization</label><br/></div>
 <div class="control"><input id="raytrace" name="method" type="radio" onchange="DrawScene()" checked /><label for="raytrace"> Ray Tracing</label><br/></div>
 <div class="control"><input id="secondary" name="method" type="radio" onchange="DrawScene()" /><label for="secondary"> Rasterization + Ray Tracing</label><br/></div>
@@ -2134,7 +2467,7 @@ canvas {
 <div class="control"><input id="envmap" name="envmap" type="checkbox" onchange="UseEnvironmentMap(this)" checked /><label for="envmap"> Environment Map</label></div>
 <input id="show-rope" name="show-rope" type="checkbox" onchange="DrawScene()" checked /><label for="show-rope"> Rope</label>		
 <input id="show-box" name="show-box" type="checkbox" onchange="DrawScene()" checked /><label for="show-box"> Box</label>		
-<input id="free-rest" name="free-rest" type="checkbox" onchange="SetFreeRest(this)" /><label for="free-rest">mod Rope Length</label>		
+<input id="free-rest" name="free-rest" type="checkbox" onchange="SetFreeRest(this)" /><label for="free-rest">mod Rope-len</label>		
 <div class="control"><span id="bounces-label">Bounce Limit:</span><span class="val"><span class="value" id="bounces-value">5</span><input type="button" value="+" onclick="IncBounceLimit(1)"><input type="button" value="&ndash;" onclick="IncBounceLimit(-1)"></span><input id="bounces-range" type="range" min="0" max="16" value="5" oninput="SetBounceLimit(this.value)"/></div>
 <div class="control"><span id="count-label">Sphere Count:</span><span class="val"><span class="value" id="count-value">10</span><input type="button" value="+" onclick="IncCount(1)"><input type="button" value="&ndash;" onclick="IncCount(-1)"></span><input id="count-range" type="range" min="1" max="100" value="10" oninput="SetCount(this.value)" onchange="NewScene()"/></div>
 <div class="control"><input type="button" class="btn" value="New Random Scene" onclick="NewScene()"></div>
