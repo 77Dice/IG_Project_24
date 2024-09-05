@@ -1124,9 +1124,12 @@ var boxFS = `
 		let xMax = 0.9, xMin = -0.9;//= 1.0 - box.max[0], xMin = -1.0 - box.min[0];	
 		let yMax = 0.9, yMin = -0.9;//1.0 - box.max[1], yMin = -1.0 - box.min[1];
 		let zMax = 0.9, zMin = -0.9;//1.0 - box.max[2], zMin = -1.0 - box.min[2];					
+		let zeroVec = new Vec3(0,0,0);	
 		// Wall Detection center of mass
 		// cealing has no collision
-		rPositions.forEach((rPos, pNumb) => {
+		rPositions.forEach((rPos, pNumb) => {			
+			// avoid if far away from the walls
+			if( zeroVec.sub(rPos[1]).len() < 0.9 ) return;			
 			let pos = rPos[1]; //center of mass					
 			if(pos.x > xMax){
 				let h = pos.x - xMax;
@@ -1162,8 +1165,8 @@ var boxFS = `
 	
 		// handle collisions with other Center of Mass
 		// when collision occurs ==> elastic collision 		
-		let minDist = 0.2; //box.max[0] - box.min[0];			
-		rPositions.forEach((rPos, pNumb) => {		
+		let minDist = 0.2; //box.max[0] - box.min[0];						
+		rPositions.forEach((rPos, pNumb) => {			
 			rPositions.forEach((rPos2, pNumb2) => {
 				if(pNumb === pNumb2) return;
 				let pos = rPos[1]; 
