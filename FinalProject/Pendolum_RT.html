@@ -1187,10 +1187,9 @@ var boxFS = `
 					rVelocities[pNumb2] = rVelocities[pNumb2].sub(normalDir.mul(v2-u2));					
 				}
 			});
-			// + handle collisions with RANDOM Spheres in the scene	
+			// + handle collisions with RANDOM Spheres in the Box 1x1x1
 			// + when collision occurs ==> as Walls, restitution 
-			for( var i=nSpheres+1; i<(spheres.length); ++i){				
-				let sphere = spheres[i];
+			spheresInBox.forEach((sphere) => {
 				let center = new Vec3(sphere.center[0],sphere.center[1],sphere.center[2]);
 				let pos = rPos[1];
 				let dist = pos.sub(center).len();	
@@ -1198,10 +1197,10 @@ var boxFS = `
 				if(dist <= minDist2){					
 					let normalDir = pos.sub(center).unit();				
 					let h = minDist2 - dist;
-					rVelocities[pNumb] = rVelocities[pNumb].mul(-restitution);												
+					rVelocities[pNumb] = rVelocities[pNumb].mul(-restitution);												 
 					pos.inc(normalDir.mul(h*restitution));																	
 				}			
-			}
+			});		
 		});				
 	}		
 	</script>
@@ -1520,15 +1519,15 @@ var fixed_spheres = [
 ];
 
 var spheres = fixed_spheres.slice();
+var spheresInBox = []; // in the box 1x1
 
 var lights = [
 	{
 		position:  [ 0, 0, 1000 ], // no swapped
 		intensity: [ 1 , 1, 1 ]
 	},	
-	
-
 ];
+
 
 const raytraceFS_header = `
 	precision highp float;
@@ -1862,6 +1861,7 @@ var background = {
 function InitScene()
 {	
 	spheres = fixed_spheres.slice();
+	spheresInBox = [];
 	const count = sphereCount;
 	const size = Math.sqrt(count)/2 + 1;
 	// 
@@ -1900,7 +1900,11 @@ function InitScene()
 				n: n
 			}
 		});
-	}	
+		// if partially inside the box (for speed up Collision Detection with Random Spheres)
+		if((x + r >= -1 && x - r <= 1) && (y + r >= -1 && y - r <= 1) 
+			&& (z + r >= -1 && z - r <= 1))
+			spheresInBox.push(spheres[spheres.length-1]);
+	}			
 	primaryRT.init(); 
 	secondaryRT.init();
 }
@@ -2065,7 +2069,6 @@ function InitShaderProgram( vsSource, fsSource)
 	}
 	return prog;
 }
-
 
 // This is a helper function for compiling a shader, called by InitShaderProgram().
 function CompileShader( type, source )
